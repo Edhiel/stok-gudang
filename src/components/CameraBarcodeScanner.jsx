@@ -2,28 +2,32 @@ import React, { useState } from 'react';
 import { useZxing } from 'react-zxing';
 
 function CameraBarcodeScanner({ onScan, onClose }) {
-  const [error, setError] = useState('');
-
   const { ref } = useZxing({
+    // Fungsi yang akan dipanggil saat scan berhasil
     onResult(result) {
       onScan(result.getText());
       onClose(); 
     },
+    // Fungsi yang akan dipanggil jika ada error
     onError(err) {
-      console.error("Scanner Error:", err);
-      if (err) {
-        // Berikan pesan error yang lebih detail ke pengguna
-        setError(`Gagal memulai kamera: ${err.name}. Coba refresh halaman atau periksa izin kamera di pengaturan browser.`);
+      // Kita tidak menampilkan error 'NotFound' ke UI agar tidak mengganggu
+      // dan hanya menampilkannya di console untuk debugging.
+      if (err && !(err.name === 'NotFoundException')) {
+        console.error("Scanner Error:", err);
       }
     },
-    // --- PERBAIKAN UTAMA ADA DI SINI ---
-    // Kita hapus permintaan width dan height yang spesifik
+    // Konfigurasi kamera yang sudah kita perbaiki
     constraints: {
         video: {
-            facingMode: 'environment' // Hanya minta kamera belakang
+            facingMode: 'environment',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
         }
     },
-    timeBetweenDecodingAttempts: 300, 
+    // Opsi bagus yang Anda temukan
+    timeBetweenDecodingAttempts: 300,
+    tryHarder: true,
+    checkInverted: true,
   });
 
   return (
@@ -35,12 +39,6 @@ function CameraBarcodeScanner({ onScan, onClose }) {
           <video ref={ref} className="w-full h-full object-cover" />
           <div className="absolute top-1/2 left-0 w-full h-0.5 bg-red-500 shadow-[0_0_10px_red]" />
         </div>
-
-        {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded" role="alert">
-            <span className="block sm:inline">{error}</span>
-          </div>
-        )}
 
         <div className="text-center text-sm text-gray-500 mb-2">Arahkan kamera ke barcode.</div>
         <button
