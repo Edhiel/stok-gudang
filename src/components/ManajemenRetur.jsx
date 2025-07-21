@@ -1,3 +1,9 @@
+import React, { useState, useEffect } from 'react'; // <-- PERBAIKAN DI SINI
+import { ref, onValue, get, update, push, serverTimestamp, runTransaction } from 'firebase/database';
+import { db } from '../firebaseConfig';
+import CameraBarcodeScanner from './CameraBarcodeScanner';
+
+// --- KOMPONEN INTERNAL UNTUK TAB 1: RETUR BAIK ---
 const TabReturBaik = ({ userProfile }) => {
   const [items, setItems] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
