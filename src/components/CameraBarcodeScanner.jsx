@@ -1,49 +1,74 @@
-import React, { useState } from 'react';
-import { useZxing } from 'react-zxing';
+import React, { useEffect, useState } from 'react';
+import { Html5Qrcode } from 'html5-qrcode';
 
 function CameraBarcodeScanner({ onScan, onClose }) {
-  const { ref } = useZxing({
-    // Fungsi yang akan dipanggil saat scan berhasil
-    onResult(result) {
-      onScan(result.getText());
-      onClose(); 
-    },
-    // Fungsi yang akan dipanggil jika ada error
-    onError(err) {
-      // Kita tidak menampilkan error 'NotFound' ke UI agar tidak mengganggu
-      // dan hanya menampilkannya di console untuk debugging.
-      if (err && !(err.name === 'NotFoundException')) {
-        console.error("Scanner Error:", err);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    // ID elemen tempat scanner akan dirender
+    const scannerId = 'qr-reader-container';
+    
+    // Inisialisasi library
+    const html5QrCode = new Html5Qrcode(scannerId);
+
+    const config = { 
+      fps: 10, 
+      qrbox: { width: 250, height: 150 }, // Kotak scan persegi panjang, lebih cocok untuk barcode
+    };
+
+    const onScanSuccess = (decodedText, decodedResult) => {
+        onScan(decodedText);
+        onClose(); // Otomatis tutup setelah berhasil
+    };
+
+    const onScanFailure = (errorMsg) => {
+      // Abaikan error "tidak ditemukan"
+    };
+    
+    // Fungsi untuk memulai scanner
+    const startScanner = async () => {
+      try {
+        await html5QrCode.start(
+          { facingMode: "environment" }, // Prioritaskan kamera belakang
+          config,
+          onScanSuccess,
+          onScanFailure
+        );
+      } catch (err) {
+        console.error("Gagal memulai scanner:", err);
+        setError("Kamera tidak ditemukan atau gagal dimulai. Pastikan izin sudah diberikan.");
       }
-    },
-    // Konfigurasi kamera yang sudah kita perbaiki
-    constraints: {
-        video: {
-            facingMode: 'environment',
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-        }
-    },
-    // Opsi bagus yang Anda temukan
-    timeBetweenDecodingAttempts: 300,
-    tryHarder: true,
-    checkInverted: true,
-  });
+    };
+
+    startScanner();
+
+    // Cleanup function saat komponen ditutup
+    return () => {
+      // Pastikan scanner sudah berjalan sebelum mencoba menghentikannya
+      if (html5QrCode && html5QrCode.isScanning) {
+        html5QrCode.stop().then(() => {
+          console.log("Scanner dihentikan.");
+        }).catch(err => {
+          console.error("Gagal menghentikan scanner.", err);
+        });
+      }
+    };
+  }, [onScan, onClose]);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-lg p-4 w-full max-w-md">
-        <h3 className="text-center text-xl font-semibold mb-2">Pindai Barcode</h3>
+        <h3 className="text-center text-lg font-semibold mb-2">
+          Arahkan Kamera ke Barcode
+        </h3>
+        {/* Beri style agar ukuran kontainer jelas */}
+        <div id="qr-reader-container" className="mb-2 border rounded-lg overflow-hidden" style={{ width: '100%' }}></div>
         
-        <div className="relative h-64 bg-black rounded overflow-hidden mb-2">
-          <video ref={ref} className="w-full h-full object-cover" />
-          <div className="absolute top-1/2 left-0 w-full h-0.5 bg-red-500 shadow-[0_0_10px_red]" />
-        </div>
-
-        <div className="text-center text-sm text-gray-500 mb-2">Arahkan kamera ke barcode.</div>
+        {error && <p className="text-red-500 text-sm text-center mt-2">{error}</p>}
+        
         <button
           onClick={onClose}
-          className="w-full bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
+          className="w-full bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded mt-4"
         >
           Tutup
         </button>
