@@ -5,29 +5,24 @@ function CameraBarcodeScanner({ onScan, onClose }) {
   const [error, setError] = useState('');
 
   const { ref } = useZxing({
-    // Nama properti yang benar adalah 'onResult'
     onResult(result) {
-      console.log('✅ Scan Berhasil:', result.getText());
       onScan(result.getText());
-      onClose(); // Langsung tutup setelah berhasil
+      onClose(); 
     },
-    // Nama properti yang benar adalah 'onError'
     onError(err) {
-      // Kita tidak menampilkan error 'NotFound' ke UI agar tidak mengganggu
-      if (err && !(err.name === 'NotFoundException')) {
-        console.error("Scanner Error:", err);
-        setError("Gagal memulai scanner. Pastikan izin kamera sudah diberikan.");
+      console.error("Scanner Error:", err);
+      if (err) {
+        // Berikan pesan error yang lebih detail ke pengguna
+        setError(`Gagal memulai kamera: ${err.name}. Coba refresh halaman atau periksa izin kamera di pengaturan browser.`);
       }
     },
-    // Konfigurasi kamera yang sudah kita perbaiki
+    // --- PERBAIKAN UTAMA ADA DI SINI ---
+    // Kita hapus permintaan width dan height yang spesifik
     constraints: {
         video: {
-            facingMode: 'environment',
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            facingMode: 'environment' // Hanya minta kamera belakang
         }
     },
-    // Opsi bagus yang Anda temukan untuk mengatur jeda scan
     timeBetweenDecodingAttempts: 300, 
   });
 
