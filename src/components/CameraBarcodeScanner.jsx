@@ -1,86 +1,91 @@
 import React, { useEffect, useRef, useState } from 'react';
-// Hapus Html5QrcodeScanType yang tidak perlu
-import { Html5Qrcode } from 'html5-qrcode';
+import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
 
 function CameraBarcodeScanner({ onScan, onClose }) {
-  const scannerRef = useRef(null);
-  const onScanRef = useRef(onScan);
-  onScanRef.current = onScan;
-  
+  const videoRef = useRef(null);
+  const codeReaderRef = useRef(null);
   const [error, setError] = useState('');
+  const [debugMessage, setDebugMessage] = useState('Menginisialisasi scanner...');
 
   useEffect(() => {
-    const scannerId = 'qr-reader';
-    
-    // --- PERBAIKAN UTAMA ADA DI SINI ---
-    const config = { 
-      fps: 10, 
-      qrbox: { width: 250, height: 250 },
-      // Gunakan daftar format barcode yang valid sebagai string
-      formatsToSupport: [
-        "EAN_13",
-        "EAN_8",
-        "UPC_A",
-        "UPC_E",
-        "CODE_128",
-        "CODE_39",
-        "ITF"
-      ],
-    };
+    codeReaderRef.current = new BrowserMultiFormatReader();
+    console.log('Component Mounted, Code Reader siap.');
+    setDebugMessage('Code Reader siap.');
 
-    const onScanSuccess = (decodedText, decodedResult) => {
-        onScanRef.current(decodedText);
-    };
-
-    const onScanFailure = (errorMsg) => {
-      // Abaikan error
-    };
-    
-    // Ganti Html5QrcodeScanner menjadi Html5Qrcode
-    const html5QrcodeScanner = new Html5Qrcode(scannerId, false);
-    
-    const startScanner = async () => {
+    const startCamera = async () => {
       try {
-        await html5QrcodeScanner.start(
-          { facingMode: "environment" }, // Kamera belakang
-          config,
-          onScanSuccess,
-          onScanFailure
-        );
-        scannerRef.current = html5QrcodeScanner;
-      } catch (err) {
-        console.error("Gagal memulai scanner:", err);
-        setError("Kamera tidak ditemukan atau gagal dimulai.");
+        setDebugMessage('Meminta izin kamera...');
+        console.log('Meminta izin kamera...');
+        
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+        });
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          setDebugMessage('Stream kamera didapatkan, menunggu video siap...');
+          console.log('Stream kamera didapatkan, menunggu video siap...');
+
+          videoRef.current.oncanplay = () => {
+            console.log('Video siap diputar (oncanplay event). Memulai pemindaian...');
+            setDebugMessage('Video siap, memulai pemindaian...');
+            
+            videoRef.current.play();
+
+            codeReaderRef.current.decodeFromVideoElement(
+              videoRef.current,
+              (result, err) => {
+                if (result) {
+                  console.log("--- SCAN BERHASIL ---", result.getText());
+                  setDebugMessage(`Berhasil: ${result.getText()}`);
+                  onScan(result.getText());
+                }
+                if (err && !(err instanceof NotFoundException)) {
+                  console.error("!!! SCANNER ERROR !!!", err);
+                  setDebugMessage(`Error: ${err.message}`);
+                }
+              }
+            );
+          };
+        }
+      } catch (e) {
+        console.error("!!! GAGAL INIT !!!", e);
+        setError('Gagal memulai kamera: ' + e.message);
+        setDebugMessage(`Gagal total: ${e.name}`);
       }
     };
 
-    startScanner();
+    startCamera();
 
     // Cleanup function
     return () => {
-      if (scannerRef.current) {
-        scannerRef.current.stop().catch(error => {
-          console.error("Gagal menghentikan scanner.", error);
-        });
+      console.log('Component Unmounted, membersihkan...');
+      codeReaderRef.current?.reset();
+      if (videoRef.current && videoRef.current.srcObject) {
+        videoRef.current.srcObject.getTracks().forEach(track => track.stop());
       }
     };
-  }, []);
+  }, [onScan]);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-4 w-full max-w-md">
-        <h3 className="text-center text-lg font-semibold mb-2">
-          Scan Barcode
-        </h3>
-        {/* Tambahkan style untuk memastikan elemen tidak tersembunyi */}
-        <div id="qr-reader" className="mb-2 border" style={{ width: '100%', minHeight: '300px' }}></div>
-        {error && <p className="text-red-500 text-sm text-center">{error}</p>}
-        <button
-          onClick={onClose}
-          className="w-full bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded mt-2"
-        >
-          Tutup
-        </button>
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-lg p-4 w-full max-w-md">
+        <h3 className="text-center text-xl font-semibold mb-2">Pindai Barcode (Mode Debug)</h3>
+        <div className="relative h-64 bg-black rounded overflow-hidden mb-2 flex justify-center items-center">
+          <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
+          <div className="absolute w-full h-0.5 bg-red-500 shadow-[0_0_10px_red]" />
+        </div>
+        
+        <div className="bg-gray-800 text-white text-xs font-mono p-2 rounded mb-2">
+            <p>Status: {debugMessage}</p>
+        </div>
+
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded" role="alert">
+            <span className="block sm-inline">{error}</span>
+          </div>
+        )}
+        <button onClick={onClose} className="w-full bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">Tutup</button>
       </div>
     </div>
   );
