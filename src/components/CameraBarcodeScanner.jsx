@@ -5,23 +5,30 @@ function CameraBarcodeScanner({ onScan, onClose }) {
   const [error, setError] = useState('');
 
   const { ref } = useZxing({
-    // Fungsi yang akan dipanggil saat scan berhasil
+    // Nama properti yang benar adalah 'onResult'
     onResult(result) {
+      console.log('✅ Scan Berhasil:', result.getText());
       onScan(result.getText());
-      // Anda bisa tambahkan onClose() di sini jika ingin scanner langsung tertutup setelah berhasil
-      // onClose(); 
+      onClose(); // Langsung tutup setelah berhasil
     },
-    // Fungsi yang akan dipanggil jika ada error saat memulai kamera
+    // Nama properti yang benar adalah 'onError'
     onError(err) {
-      console.error("Scanner Error:", err);
-      setError("Gagal memulai scanner. Pastikan izin kamera sudah diberikan.");
+      // Kita tidak menampilkan error 'NotFound' ke UI agar tidak mengganggu
+      if (err && !(err.name === 'NotFoundException')) {
+        console.error("Scanner Error:", err);
+        setError("Gagal memulai scanner. Pastikan izin kamera sudah diberikan.");
+      }
     },
-    // Opsi untuk scanner
+    // Konfigurasi kamera yang sudah kita perbaiki
     constraints: {
         video: {
-            facingMode: 'environment' // Prioritaskan kamera belakang
+            facingMode: 'environment',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
         }
     },
+    // Opsi bagus yang Anda temukan untuk mengatur jeda scan
+    timeBetweenDecodingAttempts: 300, 
   });
 
   return (
@@ -30,10 +37,7 @@ function CameraBarcodeScanner({ onScan, onClose }) {
         <h3 className="text-center text-xl font-semibold mb-2">Pindai Barcode</h3>
         
         <div className="relative h-64 bg-black rounded overflow-hidden mb-2">
-          {/* Komponen video sekarang dikontrol oleh hook 'useZxing' */}
           <video ref={ref} className="w-full h-full object-cover" />
-          
-          {/* Garis animasi (opsional, bisa ditambahkan kembali jika suka) */}
           <div className="absolute top-1/2 left-0 w-full h-0.5 bg-red-500 shadow-[0_0_10px_red]" />
         </div>
 
