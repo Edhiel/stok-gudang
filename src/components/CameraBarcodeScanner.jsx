@@ -1,62 +1,69 @@
-import React, { useEffect, useRef } from 'react';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import React, { useEffect, useRef, useState } from 'react';
+import { Html5QrcodeScanner, Html5QrcodeScanType } from 'html5-qrcode';
 
-// Nama fungsi diubah agar sesuai dengan nama file
 function CameraBarcodeScanner({ onScan, onClose }) {
   const scannerRef = useRef(null);
-  const onScanRef = useRef(onScan); // Menggunakan ref untuk onScan
+  const onScanRef = useRef(onScan);
   onScanRef.current = onScan;
+  
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    // ID elemen tempat scanner akan dirender
     const scannerId = 'qr-reader';
     
-    // Konfigurasi untuk scanner
+    // --- PERUBAHAN UTAMA: KONFIGURASI KAMERA LEBIH DETAIL ---
     const config = { 
       fps: 10, 
       qrbox: { width: 250, height: 250 },
-      supportedScanTypes: [ /* Biarkan default untuk mendukung semua */ ]
+      // Minta kamera belakang secara spesifik
+      camera: { facingMode: "environment" },
+      // Minta stream video dengan kualitas lebih tinggi & coba aktifkan autofocus
+      videoConstraints: {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        advanced: [
+          { focusMode: "continuous" }
+        ]
+      },
+      // Hanya scan tipe barcode 1D (produk)
+      formatsToSupport: [
+          Html5QrcodeScanType.SCAN_TYPE_BARCODE,
+      ],
     };
 
-    // Fungsi callback saat scan berhasil
     const onScanSuccess = (decodedText, decodedResult) => {
         onScanRef.current(decodedText);
-        // Kita tidak akan otomatis menutup scanner, biarkan user yang menutup
-        // atau bisa ditambahkan logika untuk menutup setelah scan pertama jika diinginkan
     };
 
-    // Inisialisasi scanner
-    scannerRef.current = new Html5QrcodeScanner(
-      scannerId,
-      config,
-      /* verbose= */ false
-    );
+    const onScanFailure = (errorMsg) => {
+      // Fungsi ini sengaja dikosongkan untuk menghindari spam console
+      // console.warn(`Scan Gagal: ${errorMsg}`);
+    };
 
-    // Mulai rendering scanner
-    scannerRef.current.render(onScanSuccess, (errorMsg) => {
-      // Abaikan error "QR code not found" yang sering muncul
-    });
+    scannerRef.current = new Html5QrcodeScanner(scannerId, config, false);
+    scannerRef.current.render(onScanSuccess, onScanFailure);
 
-    // Cleanup function saat komponen ditutup
+    // Cleanup function
     return () => {
       if (scannerRef.current) {
         scannerRef.current.clear().catch(error => {
-          console.error("Gagal membersihkan html5-qrcode.", error);
+          console.error("Gagal membersihkan scanner.", error);
         });
       }
     };
-  }, []); // Dependency array kosong agar hanya berjalan sekali
+  }, []);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
-      <div className="bg-white rounded p-4 w-full max-w-md">
+      <div className="bg-white rounded-lg p-4 w-full max-w-md">
         <h3 className="text-center text-lg font-semibold mb-2">
-          Scan Barcode / QR
+          Scan Barcode
         </h3>
-        <div id="qr-reader" className="mb-2"></div>
+        <div id="qr-reader" className="mb-2 border"></div>
+        {error && <p className="text-red-500 text-sm text-center">{error}</p>}
         <button
           onClick={onClose}
-          className="w-full bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
+          className="w-full bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded mt-2"
         >
           Tutup
         </button>
@@ -65,5 +72,4 @@ function CameraBarcodeScanner({ onScan, onClose }) {
   );
 }
 
-// Nama export diubah agar sesuai
 export default CameraBarcodeScanner;
