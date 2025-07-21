@@ -1,93 +1,68 @@
 import React, { useEffect, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 
-// Komponen baru untuk Viewfinder (Jendela Bidik)
-const Viewfinder = () => (
-  <div style={{
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    transform: 'translate(-50%, -50%)',
-    width: '280px',
-    height: '180px',
-  }}>
-    <div style={{
-      position: 'absolute',
-      width: '100%',
-      height: '100%',
-      boxShadow: '0 0 0 4000px rgba(0,0,0,0.5)', // Area gelap di luar
-      border: '2px solid white',
-      borderRadius: '10px',
-    }}/>
-    <div style={{
-      position: 'absolute',
-      top: '50%',
-      left: 0,
-      right: 0,
-      height: '2px',
-      background: 'red',
-      boxShadow: '0 0 5px red',
-      animation: 'scan-laser 2s linear infinite'
-    }}/>
-  </div>
-);
-
 function CameraBarcodeScanner({ onScan, onClose }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    // ID elemen tempat scanner akan dirender
     const scannerId = 'qr-reader-container';
-    const html5QrCode = new Html5Qrcode(scannerId, {
-      // Tambahkan experimental features untuk performa lebih baik
-      experimentalFeatures: {
-        useBarCodeDetectorIfSupported: true,
-      },
-    });
+    
+    // Inisialisasi library
+    const html5QrCode = new Html5Qrcode(scannerId);
 
     const config = { 
       fps: 10, 
-      qrbox: { width: 280, height: 180 }, // Sesuaikan dengan ukuran viewfinder
+      qrbox: { width: 250, height: 150 }, // Kotak scan persegi panjang, lebih cocok untuk barcode
     };
 
-    const onScanSuccess = (decodedText) => {
+    const onScanSuccess = (decodedText, decodedResult) => {
         onScan(decodedText);
-        onClose();
+        onClose(); // Otomatis tutup setelah berhasil
     };
 
-    const onScanFailure = (errorMsg) => {};
+    const onScanFailure = (errorMsg) => {
+      // Abaikan error "tidak ditemukan"
+    };
     
-    html5QrCode.start(
-      { facingMode: "environment" },
-      config,
-      onScanSuccess,
-      onScanFailure
-    ).catch(err => {
-        setError("Kamera gagal dimulai.");
-    });
+    // Fungsi untuk memulai scanner
+    const startScanner = async () => {
+      try {
+        await html5QrCode.start(
+          { facingMode: "environment" }, // Prioritaskan kamera belakang
+          config,
+          onScanSuccess,
+          onScanFailure
+        );
+      } catch (err) {
+        console.error("Gagal memulai scanner:", err);
+        setError("Kamera tidak ditemukan atau gagal dimulai. Pastikan izin sudah diberikan.");
+      }
+    };
 
+    startScanner();
+
+    // Cleanup function saat komponen ditutup
     return () => {
-      if (html5QrCode.isScanning) {
-        html5QrCode.stop().catch(err => {});
+      // Pastikan scanner sudah berjalan sebelum mencoba menghentikannya
+      if (html5QrCode && html5QrCode.isScanning) {
+        html5QrCode.stop().then(() => {
+          console.log("Scanner dihentikan.");
+        }).catch(err => {
+          console.error("Gagal menghentikan scanner.", err);
+        });
       }
     };
   }, [onScan, onClose]);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-      {/* CSS untuk animasi garis laser */}
-      <style>
-        {`@keyframes scan-laser { 0% { transform: translateY(-90px); } 50% { transform: translateY(90px); } 100% { transform: translateY(-90px); } }`}
-      </style>
       <div className="bg-white rounded-lg shadow-lg p-4 w-full max-w-md">
         <h3 className="text-center text-lg font-semibold mb-2">
-          Arahkan Barcode ke Dalam Kotak
+          Arahkan Kamera ke Barcode
         </h3>
-        
-        {/* Kontainer untuk scanner sekarang punya posisi relative */}
-        <div id="qr-reader-container" className="relative mb-2 border rounded-lg overflow-hidden" style={{ width: '100%', paddingTop: '75%' /* Rasio 4:3 */ }}>
-          {/* Tambahkan Viewfinder di sini */}
-          <Viewfinder />
-        </div>
+        {/* Beri style agar ukuran kontainer jelas */}
+        <div id="qr-reader-container" className="mb-2 border rounded-lg overflow-hidden" style={{ width: '100%' }}></div>
         
         {error && <p className="text-red-500 text-sm text-center mt-2">{error}</p>}
         
