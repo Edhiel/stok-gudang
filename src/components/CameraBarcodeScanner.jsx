@@ -1,80 +1,74 @@
 import React, { useEffect, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 
-function CameraBarcodeScanner({ onScan, onClose }) {
-  const [error, setError] = useState('');
+function BarcodeScanner({ onScan, onClose }) {
+  // State baru untuk menampilkan hasil scan sesaat
+  const [scanResult, setScanResult] = useState(null);
 
   useEffect(() => {
-    // ID elemen tempat scanner akan dirender
-    const scannerId = 'qr-reader-container';
-    
-    // Inisialisasi library
+    const scannerId = 'qr-reader';
     const html5QrCode = new Html5Qrcode(scannerId);
 
-    const config = { 
-      fps: 10, 
-      qrbox: { width: 250, height: 150 }, // Kotak scan persegi panjang, lebih cocok untuk barcode
-    };
-
-    const onScanSuccess = (decodedText, decodedResult) => {
-        onScan(decodedText);
-        onClose(); // Otomatis tutup setelah berhasil
-    };
-
-    const onScanFailure = (errorMsg) => {
-      // Abaikan error "tidak ditemukan"
-    };
-    
-    // Fungsi untuk memulai scanner
-    const startScanner = async () => {
-      try {
-        await html5QrCode.start(
-          { facingMode: "environment" }, // Prioritaskan kamera belakang
-          config,
-          onScanSuccess,
-          onScanFailure
-        );
-      } catch (err) {
-        console.error("Gagal memulai scanner:", err);
-        setError("Kamera tidak ditemukan atau gagal dimulai. Pastikan izin sudah diberikan.");
+    // Fungsi saat scan berhasil
+    const onScanSuccess = (decodedText) => {
+      // 1. Tampilkan hasil di UI dan hentikan kamera
+      setScanResult(decodedText);
+      if (html5QrCode.isScanning) {
+        html5QrCode.stop();
       }
+
+      // 2. Beri jeda 1 detik sebelum mengirim hasil dan menutup modal
+      setTimeout(() => {
+        onScan(decodedText);
+        onClose();
+      }, 1000);
     };
 
-    startScanner();
+    // Fungsi saat scan gagal (diabaikan)
+    const onScanFailure = (err) => {};
 
-    // Cleanup function saat komponen ditutup
+    // Mulai scanner
+    if (!scanResult) { // Hanya mulai jika belum ada hasil scan
+      html5QrCode.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 280, height: 150 } },
+        onScanSuccess,
+        onScanFailure
+      ).catch((err) => {
+        console.error("Gagal memulai scanner.", err);
+      });
+    }
+
+    // 3. Logika cleanup yang lebih aman
     return () => {
-      // Pastikan scanner sudah berjalan sebelum mencoba menghentikannya
       if (html5QrCode && html5QrCode.isScanning) {
-        html5QrCode.stop().then(() => {
-          console.log("Scanner dihentikan.");
-        }).catch(err => {
-          console.error("Gagal menghentikan scanner.", err);
+        html5QrCode.stop().catch(err => {
+          console.error("Gagal menghentikan scanner dengan benar.", err);
         });
       }
     };
-  }, [onScan, onClose]);
+  }, [onScan, onClose, scanResult]);
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-lg p-4 w-full max-w-md">
-        <h3 className="text-center text-lg font-semibold mb-2">
-          Arahkan Kamera ke Barcode
-        </h3>
-        {/* Beri style agar ukuran kontainer jelas */}
-        <div id="qr-reader-container" className="mb-2 border rounded-lg overflow-hidden" style={{ width: '100%' }}></div>
-        
-        {error && <p className="text-red-500 text-sm text-center mt-2">{error}</p>}
-        
-        <button
-          onClick={onClose}
-          className="w-full bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded mt-4"
-        >
-          Tutup
-        </button>
+    <div className="fixed inset-0 bg-black bg-opacity-80 flex flex-col items-center justify-center z-50">
+      <div id="qr-reader" className="w-full max-w-sm h-80 bg-black rounded-lg overflow-hidden relative">
+        {/* Tampilan saat hasil scan didapatkan */}
+        {scanResult && (
+          <div className="w-full h-full bg-green-500 flex flex-col items-center justify-center text-white p-4">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+            <p className="mt-4 font-bold">Scan Berhasil!</p>
+            <p className="text-sm break-all">{scanResult}</p>
+          </div>
+        )}
       </div>
+      <button
+        onClick={onClose}
+        className="mt-4 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded"
+      >
+        Tutup
+      </button>
     </div>
   );
 }
 
-export default CameraBarcodeScanner;
+export default BarcodeScanner;
