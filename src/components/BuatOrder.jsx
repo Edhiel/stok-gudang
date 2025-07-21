@@ -2,47 +2,34 @@ import React, { useState, useEffect } from 'react';
 import { ref, onValue, get, runTransaction, push, serverTimestamp } from 'firebase/database';
 import { db } from '../firebaseConfig';
 import CameraBarcodeScanner from './CameraBarcodeScanner';
-// TombolKembali sudah dihapus dari sini
+import toast from 'react-hot-toast';
 
-function BuatOrder({ userProfile, setPage }) { // setPage tetap ada jika nanti diperlukan
-  // State untuk data header
+function BuatOrder({ userProfile, setPage }) {
   const [orderNumber, setOrderNumber] = useState('');
   const [storeName, setStoreName] = useState('');
-
-  // State untuk item
   const [availableItems, setAvailableItems] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [itemStock, setItemStock] = useState(0);
-
-  // State untuk kuantitas
   const [dosQty, setDosQty] = useState(0);
   const [packQty, setPackQty] = useState(0);
   const [pcsQty, setPcsQty] = useState(0);
-  
-  const [orderItems, setOrderItems] = useState([]); // Daftar barang di keranjang order
+  const [orderItems, setOrderItems] = useState([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showScanner, setShowScanner] = useState(false);
 
-  // Mengambil daftar barang yang stoknya tersedia
   useEffect(() => {
     if (!userProfile.depotId) return;
-
     const masterItemsRef = ref(db, 'master_items');
     get(masterItemsRef).then((masterSnapshot) => {
       const masterItems = masterSnapshot.val() || {};
-      
       const stockRef = ref(db, `depots/${userProfile.depotId}/stock`);
       onValue(stockRef, (stockSnapshot) => {
         const stockData = stockSnapshot.val() || {};
         const available = Object.keys(stockData)
           .filter(itemId => (stockData[itemId].totalStockInPcs || 0) > 0)
-          .map(itemId => ({
-            id: itemId,
-            ...masterItems[itemId],
-            totalStockInPcs: stockData[itemId].totalStockInPcs
-          }));
+          .map(itemId => ({ id: itemId, ...masterItems[itemId], totalStockInPcs: stockData[itemId].totalStockInPcs }));
         setAvailableItems(available);
       });
     });
@@ -53,7 +40,7 @@ function BuatOrder({ userProfile, setPage }) { // setPage tetap ada jika nanti d
     if (foundItem) {
       handleSelectItem(foundItem);
     } else {
-      alert("Barang tidak ditemukan atau stok kosong.");
+      toast.error("Barang tidak ditemukan atau stok kosong.");
     }
     setShowScanner(false);
   };
@@ -65,11 +52,10 @@ function BuatOrder({ userProfile, setPage }) { // setPage tetap ada jika nanti d
   };
   
   const handleAddItemToList = () => {
-    if (!selectedItem) { alert("Pilih barang dulu."); return; }
+    if (!selectedItem) { toast.error("Pilih barang dulu."); return; }
     const totalPcs = (Number(dosQty) * (selectedItem.conversions.Dos?.inPcs || 1)) + (Number(packQty) * (selectedItem.conversions.Pack?.inPcs || 1)) + (Number(pcsQty));
-    if (totalPcs <= 0) { alert("Masukkan jumlah yang valid."); return; }
-    if (totalPcs > itemStock) { alert(`Stok tidak cukup! Sisa stok hanya ${itemStock} Pcs.`); return; }
-    
+    if (totalPcs <= 0) { toast.error("Masukkan jumlah yang valid."); return; }
+    if (totalPcs > itemStock) { toast.error(`Stok tidak cukup! Sisa stok hanya ${itemStock} Pcs.`); return; }
     setOrderItems([...orderItems, { id: selectedItem.id, name: selectedItem.name, quantityInPcs: totalPcs, displayQty: `${dosQty}.${packQty}.${pcsQty}` }]);
     setSelectedItem(null); setSearchTerm(''); setDosQty(0); setPackQty(0); setPcsQty(0);
   };
@@ -84,9 +70,7 @@ function BuatOrder({ userProfile, setPage }) { // setPage tetap ada jika nanti d
       return;
     }
     setError(''); setSuccess('');
-
     try {
-      // "Booking" stok untuk setiap barang
       for (const orderItem of orderItems) {
         const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${orderItem.id}`);
         await runTransaction(stockRef, (currentStock) => {
@@ -99,22 +83,17 @@ function BuatOrder({ userProfile, setPage }) { // setPage tetap ada jika nanti d
           return currentStock;
         });
       }
-
-      // Simpan data order
       const salesOrdersRef = ref(db, `depots/${userProfile.depotId}/salesOrders`);
       await push(salesOrdersRef, {
-        orderNumber: orderNumber,
-        storeName: storeName,
-        items: orderItems,
-        status: 'Menunggu Approval Admin',
-        salesName: userProfile.fullName,
-        createdAt: serverTimestamp()
+        orderNumber: orderNumber, storeName: storeName, items: orderItems,
+        status: 'Menunggu Approval Admin', salesName: userProfile.fullName, createdAt: serverTimestamp()
       });
-
       setSuccess("Order berhasil disimpan dan stok telah dibooking.");
+      toast.success("Order berhasil disimpan.");
       setOrderNumber(''); setStoreName(''); setOrderItems([]);
     } catch (err) {
       setError(`Gagal menyimpan order: ${err.message}`);
+      toast.error(`Gagal menyimpan: ${err.message}`);
       console.error(err);
     }
   };
@@ -125,7 +104,7 @@ function BuatOrder({ userProfile, setPage }) { // setPage tetap ada jika nanti d
 
   return (
     <>
-      {showScanner && <CameraBarcodeScanner onDetected={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
+      {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
       <div className="p-4 md:p-8">
         <div className="card bg-white shadow-lg w-full">
           <div className="card-body">

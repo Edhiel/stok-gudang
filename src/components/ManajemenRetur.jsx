@@ -1,9 +1,3 @@
-import React, { useState, useEffect } from 'react';
-import { ref, onValue, get, update, push, serverTimestamp, runTransaction } from 'firebase/database';
-import { db } from '../firebaseConfig';
-import CameraBarcodeScanner from './CameraBarcodeScanner';
-
-// --- KOMPONEN INTERNAL UNTUK TAB 1: RETUR BAIK ---
 const TabReturBaik = ({ userProfile }) => {
   const [items, setItems] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -14,8 +8,6 @@ const TabReturBaik = ({ userProfile }) => {
   const [storeName, setStoreName] = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [transactionItems, setTransactionItems] = useState([]);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [showScanner, setShowScanner] = useState(false);
 
   useEffect(() => {
@@ -31,7 +23,7 @@ const TabReturBaik = ({ userProfile }) => {
 
   const handleBarcodeDetected = (scannedBarcode) => {
     const foundItem = items.find(item => item.barcodePcs === scannedBarcode || item.barcodeDos === scannedBarcode);
-    if (foundItem) handleSelectItem(foundItem); else alert("Barang tidak ditemukan di master.");
+    if (foundItem) handleSelectItem(foundItem); else toast.error("Barang tidak ditemukan di master.");
     setShowScanner(false);
   };
 
@@ -41,9 +33,9 @@ const TabReturBaik = ({ userProfile }) => {
   };
   
   const handleAddItemToList = () => {
-    if (!selectedItem) { alert("Pilih barang dulu."); return; }
+    if (!selectedItem) { toast.error("Pilih barang dulu."); return; }
     const totalPcs = (Number(dosQty) * (selectedItem.conversions.Dos?.inPcs || 1)) + (Number(packQty) * (selectedItem.conversions.Pack?.inPcs || 1)) + (Number(pcsQty));
-    if (totalPcs <= 0) { alert("Masukkan jumlah yang valid."); return; }
+    if (totalPcs <= 0) { toast.error("Masukkan jumlah yang valid."); return; }
     setTransactionItems([...transactionItems, { id: selectedItem.id, name: selectedItem.name, quantityInPcs: totalPcs, displayQty: `${dosQty}.${packQty}.${pcsQty}` }]);
     setSelectedItem(null); setSearchTerm(''); setDosQty(0); setPackQty(0); setPcsQty(0);
   };
@@ -53,8 +45,7 @@ const TabReturBaik = ({ userProfile }) => {
   };
 
   const handleSaveTransaction = async () => {
-    if (transactionItems.length === 0 || !storeName) { setError("Nama Toko dan minimal 1 barang wajib diisi."); return; }
-    setError(''); setSuccess('');
+    if (transactionItems.length === 0 || !storeName) { toast.error("Nama Toko dan minimal 1 barang wajib diisi."); return; }
     try {
       for (const transItem of transactionItems) {
         const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${transItem.id}`);
@@ -66,17 +57,15 @@ const TabReturBaik = ({ userProfile }) => {
       }
       const transactionsRef = ref(db, `depots/${userProfile.depotId}/transactions`);
       await push(transactionsRef, { type: 'Retur Baik', fromStore: storeName, invoiceNumber: invoiceNumber, items: transactionItems, user: userProfile.fullName, timestamp: serverTimestamp() });
-      setSuccess("Transaksi Retur Baik berhasil disimpan. Stok telah ditambahkan.");
+      toast.success("Transaksi Retur Baik berhasil disimpan.");
       setTransactionItems([]); setStoreName(''); setInvoiceNumber('');
-    } catch(err) { setError("Gagal menyimpan transaksi."); console.error(err); }
+    } catch(err) { toast.error("Gagal menyimpan transaksi."); console.error(err); }
   };
 
   return (
     <>
-      {showScanner && <CameraBarcodeScanner onDetected={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
+      {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
       <div className="p-4 space-y-4">
-        {success && <div role="alert" className="alert alert-success"><span>{success}</span></div>}
-        {error && <div role="alert" className="alert alert-error"><span>{error}</span></div>}
         <div className="p-4 border rounded-lg bg-base-200 space-y-4">
           <h4 className="font-bold">Informasi Retur</h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div className="form-control"><label className="label"><span className="label-text font-bold">No. Faktur Asal</span></label><input type="text" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} placeholder="No. Faktur penjualan" className="input input-bordered" /></div><div className="form-control"><label className="label"><span className="label-text font-bold">Nama Toko Asal</span></label><input type="text" value={storeName} onChange={(e) => setStoreName(e.target.value)} placeholder="Toko yang mengembalikan barang" className="input input-bordered" /></div></div>
@@ -94,7 +83,6 @@ const TabReturBaik = ({ userProfile }) => {
     </>
   );
 };
-// --- KOMPONEN TAB 2: RETUR RUSAK ---
 const TabReturRusak = ({ userProfile }) => {
   const [items, setItems] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -107,8 +95,6 @@ const TabReturRusak = ({ userProfile }) => {
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [description, setDescription] = useState('');
   const [transactionItems, setTransactionItems] = useState([]);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [showScanner, setShowScanner] = useState(false);
 
   useEffect(() => {
@@ -123,7 +109,7 @@ const TabReturRusak = ({ userProfile }) => {
   
   const handleBarcodeDetected = (scannedBarcode) => {
     const foundItem = items.find(item => item.barcodePcs === scannedBarcode || item.barcodeDos === scannedBarcode);
-    if (foundItem) handleSelectItem(foundItem); else alert("Barang tidak ditemukan.");
+    if (foundItem) handleSelectItem(foundItem); else toast.error("Barang tidak ditemukan.");
     setShowScanner(false);
   };
   
@@ -142,11 +128,11 @@ const TabReturRusak = ({ userProfile }) => {
   };
   
   const handleAddItemToList = () => {
-    if (!selectedItem) { alert("Pilih barang dulu."); return; }
+    if (!selectedItem) { toast.error("Pilih barang dulu."); return; }
     const totalPcs = (Number(dosQty) * (selectedItem.conversions.Dos?.inPcs || 1)) + (Number(packQty) * (selectedItem.conversions.Pack?.inPcs || 1)) + (Number(pcsQty));
-    if (totalPcs <= 0) { alert("Masukkan jumlah yang valid."); return; }
+    if (totalPcs <= 0) { toast.error("Masukkan jumlah yang valid."); return; }
     if (returnOrigin === 'gudang' && totalPcs > (selectedItem.totalStockInPcs || 0) ) {
-        alert(`Stok baik tidak cukup! Sisa stok ${selectedItem.name} hanya ${selectedItem.totalStockInPcs || 0} Pcs.`);
+        toast.error(`Stok baik tidak cukup! Sisa stok hanya ${selectedItem.totalStockInPcs || 0} Pcs.`);
         return;
     }
     setTransactionItems([...transactionItems, { id: selectedItem.id, name: selectedItem.name, quantityInPcs: totalPcs, displayQty: `${dosQty}.${packQty}.${pcsQty}` }]);
@@ -158,9 +144,8 @@ const TabReturRusak = ({ userProfile }) => {
   };
   
   const handleSaveTransaction = async () => {
-    if (transactionItems.length === 0) { setError("Minimal 1 barang wajib diisi."); return; }
-    if (returnOrigin === 'toko' && !storeName) { setError("Nama Toko wajib diisi untuk retur dari toko."); return; }
-    setError(''); setSuccess('');
+    if (transactionItems.length === 0) { toast.error("Minimal 1 barang wajib diisi."); return; }
+    if (returnOrigin === 'toko' && !storeName) { toast.error("Nama Toko wajib diisi untuk retur dari toko."); return; }
     try {
       for (const transItem of transactionItems) {
         const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${transItem.id}`);
@@ -178,17 +163,15 @@ const TabReturRusak = ({ userProfile }) => {
       }
       const transactionsRef = ref(db, `depots/${userProfile.depotId}/transactions`);
       await push(transactionsRef, { type: 'Retur Rusak', origin: returnOrigin, fromStore: storeName, invoiceNumber: invoiceNumber, description: description, items: transactionItems, user: userProfile.fullName, timestamp: serverTimestamp() });
-      setSuccess("Transaksi Retur Rusak berhasil disimpan.");
+      toast.success("Transaksi Retur Rusak berhasil disimpan.");
       setTransactionItems([]); setDescription(''); setReturnOrigin('toko'); setStoreName(''); setInvoiceNumber('');
-    } catch(err) { setError(`Gagal menyimpan: ${err.message}`); console.error(err); }
+    } catch(err) { toast.error(`Gagal menyimpan: ${err.message}`); console.error(err); }
   };
 
   return (
     <>
-      {showScanner && <CameraBarcodeScanner onDetected={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
+      {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
       <div className="p-4 space-y-4">
-        {success && <div role="alert" className="alert alert-success"><span>{success}</span></div>}
-        {error && <div role="alert" className="alert alert-error"><span>{error}</span></div>}
         <div className="p-4 border rounded-lg bg-base-200 space-y-4">
           <h4 className="font-bold">Informasi Retur Rusak</h4>
           <div className="form-control"><label className="label"><span className="label-text font-bold">Asal Retur</span></label><select value={returnOrigin} onChange={(e) => setReturnOrigin(e.target.value)} className="select select-bordered"><option value="toko">Retur dari Toko</option><option value="gudang">Retur dari Gudang</option></select></div>
@@ -213,26 +196,19 @@ const TabReturRusak = ({ userProfile }) => {
     </>
   );
 };
-// --- KOMPONEN TAB 3: REKAP & PENGIRIMAN ---
 const TabKirimPusat = ({ userProfile }) => {
   const [damagedItems, setDamagedItems] = useState([]);
   const [filteredItems, setFilteredItems] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterSupplier, setFilterSupplier] = useState('semua');
-  const [filterPeriod, setFilterPeriod] = useState('kustom');
-  const [filterStartDate, setFilterStartDate] = useState('');
-  const [filterEndDate, setFilterEndDate] = useState('');
   const [selectedForShipment, setSelectedForShipment] = useState({});
   const [showProcessForm, setShowProcessForm] = useState(false);
   const [processAction, setProcessAction] = useState('kirim');
   const [documentNumber, setDocumentNumber] = useState('');
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-
+  
   useEffect(() => {
     if (!userProfile.depotId) return;
-    
     const masterItemsRef = ref(db, 'master_items');
     get(masterItemsRef).then((masterSnapshot) => {
         const masterItems = masterSnapshot.val() || {};
@@ -241,17 +217,12 @@ const TabKirimPusat = ({ userProfile }) => {
             const stockData = stockSnapshot.val() || {};
             const damagedOnly = Object.keys(stockData)
                 .filter(itemId => (stockData[itemId].damagedStockInPcs || 0) > 0)
-                .map(itemId => ({
-                    id: itemId,
-                    ...(masterItems[itemId] || {}),
-                    damagedStockInPcs: stockData[itemId].damagedStockInPcs
-                }));
+                .map(itemId => ({ id: itemId, ...(masterItems[itemId] || {}), damagedStockInPcs: stockData[itemId].damagedStockInPcs }));
             setDamagedItems(damagedOnly);
             setFilteredItems(damagedOnly);
             setLoading(false);
         });
     });
-
     const suppliersRef = ref(db, 'suppliers/');
     onValue(suppliersRef, (snapshot) => {
       const data = snapshot.val();
@@ -260,33 +231,75 @@ const TabKirimPusat = ({ userProfile }) => {
     });
   }, [userProfile.depotId]);
 
-  const handlePeriodChange = (period) => {
-    setFilterPeriod(period);
-    if (period === 'kustom') return;
-
-    const end = new Date();
-    const start = new Date();
-    switch(period) {
-        case 'hariIni': break;
-        case 'mingguLalu': start.setDate(start.getDate() - 7); break;
-        case 'bulanIni': start.setDate(1); break;
-        case 'bulanLalu':
-            start.setMonth(start.getMonth() - 1);
-            start.setDate(1);
-            end.setDate(0);
-            break;
-        default: break;
+  const handleApplyFilter = () => {
+    let items = [...damagedItems];
+    if (filterSupplier !== 'semua') {
+        items = items.filter(item => item.supplierId === filterSupplier);
     }
-    const formatDate = (date) => date.toISOString().split('T')[0];
-    setFilterStartDate(formatDate(start));
-    setFilterEndDate(formatDate(end));
+    setFilteredItems(items);
+  };
+
+  const handleSelectItem = (itemId) => {
+    setSelectedForShipment(prev => ({ ...prev, [itemId]: !prev[itemId] }));
   };
   
-  const handleApplyFilter = () => { /* ... Logika filter ... */ };
-  const handleSelectItem = (itemId) => { /* ... Logika tidak berubah ... */ };
-  const handleProcessSelected = () => { /* ... Logika tidak berubah ... */ };
-  const handleSaveFinalAction = async () => { /* ... Logika tidak berubah ... */ };
-  const formatToDPP = (totalPcs, conversions) => { /* ... Logika tidak berubah ... */ };
+  const handleProcessSelected = () => {
+    const selectedIds = Object.keys(selectedForShipment).filter(key => selectedForShipment[key]);
+    if (selectedIds.length === 0) {
+        toast.error("Pilih setidaknya satu barang untuk diproses.");
+        return;
+    }
+    setShowProcessForm(true);
+  };
+  
+  const handleSaveFinalAction = async () => {
+    if (!documentNumber) {
+        toast.error("Nomor Dokumen wajib diisi.");
+        return;
+    }
+    const selectedIds = Object.keys(selectedForShipment).filter(key => selectedForShipment[key]);
+    const itemsToAction = damagedItems.filter(item => selectedIds.includes(item.id));
+    const actionType = processAction === 'kirim' ? 'Pengiriman BS ke Pusat' : 'Pemusnahan BS';
+
+    try {
+        const updates = {};
+        const transactionItems = [];
+        for (const item of itemsToAction) {
+            const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${item.id}`);
+            const newDamagedStock = 0; // Stok rusak jadi 0 setelah diproses
+            updates[`/depots/${userProfile.depotId}/stock/${item.id}/damagedStockInPcs`] = newDamagedStock;
+            transactionItems.push({
+                id: item.id,
+                name: item.name,
+                quantityInPcs: item.damagedStockInPcs,
+                displayQty: formatToDPP(item.damagedStockInPcs, item.conversions),
+            });
+        }
+        
+        const transactionsRef = ref(db, `depots/${userProfile.depotId}/transactions`);
+        const newTransactionKey = push(transactionsRef).key;
+        updates[`/depots/${userProfile.depotId}/transactions/${newTransactionKey}`] = {
+            type: actionType, documentNumber: documentNumber, items: transactionItems,
+            user: userProfile.fullName, timestamp: serverTimestamp()
+        };
+        
+        await update(ref(db), updates);
+        toast.success(`Aksi '${actionType}' berhasil disimpan.`);
+        setShowProcessForm(false);
+        setSelectedForShipment({});
+        setDocumentNumber('');
+    } catch (err) {
+        toast.error("Gagal menyimpan aksi final.");
+        console.error(err);
+    }
+  };
+  
+  const formatToDPP = (totalPcs, conversions) => {
+    if (!totalPcs || !conversions) return '0.0.0';
+    const dosInPcs = conversions.Dos?.inPcs || (conversions.Pack?.inPcs || 1);
+    const packInPcs = conversions.Pack?.inPcs || 1;
+    return `${Math.floor(totalPcs / dosInPcs)}.${Math.floor((totalPcs % dosInPcs) / packInPcs)}.${totalPcs % packInPcs}`;
+  };
 
   return (
     <div className="p-4 space-y-4 printable-area">
@@ -294,16 +307,13 @@ const TabKirimPusat = ({ userProfile }) => {
       <div className="p-4 border rounded-lg bg-base-200 mb-4 space-y-4 print:hidden">
         <div className="flex flex-wrap gap-4 items-end">
             <div className="form-control"><label className="label"><span className="label-text">Filter per Supplier</span></label><select value={filterSupplier} onChange={(e) => setFilterSupplier(e.target.value)} className="select select-bordered w-full max-w-xs"><option value="semua">Semua Supplier</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
-            <div className="form-control"><label className="label"><span className="label-text">Periode Cepat</span></label><select value={filterPeriod} onChange={(e) => handlePeriodChange(e.target.value)} className="select select-bordered w-full max-w-xs"><option value="kustom">Rentang Kustom</option><option value="hariIni">Hari Ini</option><option value="mingguLalu">7 Hari Terakhir</option><option value="bulanIni">Bulan Ini</option><option value="bulanLalu">Bulan Lalu</option></select></div>
-            <div className="form-control"><label className="label"><span className="label-text">Dari Tanggal</span></label><input type="date" value={filterStartDate} onChange={(e) => setFilterStartDate(e.target.value)} className="input input-bordered" disabled={filterPeriod !== 'kustom'} /></div>
-            <div className="form-control"><label className="label"><span className="label-text">Sampai Tanggal</span></label><input type="date" value={filterEndDate} onChange={(e) => setFilterEndDate(e.target.value)} className="input input-bordered" disabled={filterPeriod !== 'kustom'} /></div>
             <button onClick={handleApplyFilter} className="btn btn-accent">Terapkan</button>
         </div>
       </div>
       <div className="divider">Daftar Barang Sesuai Filter</div>
       <div className="overflow-x-auto">
         <table className="table w-full">
-            <thead className='bg-gray-200'><tr><th><input type="checkbox" className="checkbox print:hidden" /></th><th>Nama Barang</th><th>Jumlah Rusak</th><th>Supplier</th></tr></thead>
+            <thead className='bg-gray-200'><tr><th><input type="checkbox" className="checkbox print:hidden" onChange={(e) => setSelectedForShipment(filteredItems.reduce((acc, item) => ({...acc, [item.id]: e.target.checked}), {}))} /></th><th>Nama Barang</th><th>Jumlah Rusak</th><th>Supplier</th></tr></thead>
             <tbody>
                 {loading ? (<tr><td colSpan="4" className="text-center"><span className="loading loading-dots"></span></td></tr>) : 
                  (filteredItems.map(item => ( <tr key={item.id}><th><label><input type="checkbox" checked={!!selectedForShipment[item.id]} onChange={() => handleSelectItem(item.id)} className="checkbox print:hidden" /></label></th><td>{item.name}</td><td>{formatToDPP(item.damagedStockInPcs, item.conversions)}</td><td>{item.supplierName}</td></tr> )))}
@@ -319,11 +329,8 @@ const TabKirimPusat = ({ userProfile }) => {
   );
 };
 
-
-// --- KOMPONEN UTAMA MANAJEMEN RETUR ---
 function ManajemenRetur({ userProfile }) {
   const [activeTab, setActiveTab] = useState('returBaik');
-
   return (
     <div className="p-8">
       <h1 className="text-3xl font-bold mb-6 print:hidden">Manajemen Retur</h1>
@@ -332,7 +339,6 @@ function ManajemenRetur({ userProfile }) {
         <a role="tab" className={`tab ${activeTab === 'returRusak' ? 'tab-active' : ''}`} onClick={() => setActiveTab('returRusak')}>Retur Rusak</a>
         <a role="tab" className={`tab ${activeTab === 'kirimPusat' ? 'tab-active' : ''}`} onClick={() => setActiveTab('kirimPusat')}>Rekap & Pengiriman</a>
       </div>
-
       <div className="bg-white p-6 rounded-b-lg rounded-tr-lg shadow-lg min-h-96">
         {activeTab === 'returBaik' && <TabReturBaik userProfile={userProfile} />}
         {activeTab === 'returRusak' && <TabReturRusak userProfile={userProfile} />}

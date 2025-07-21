@@ -5,19 +5,14 @@ import Papa from 'papaparse';
 import CameraBarcodeScanner from './CameraBarcodeScanner';
 
 function KelolaMasterBarang() {
-  // State data dari Firebase
   const [masterItems, setMasterItems] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  // State untuk filter, pencarian, dan data yang ditampilkan
   const [filteredItems, setFilteredItems] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
   const [filterSupplier, setFilterSupplier] = useState('');
-
-  // State untuk form tambah barang
   const [barcodePcs, setBarcodePcs] = useState('');
   const [barcodeDos, setBarcodeDos] = useState('');
   const [name, setName] = useState('');
@@ -26,44 +21,35 @@ function KelolaMasterBarang() {
   const [selectedSubSupplierName, setSelectedSubSupplierName] = useState('');
   const [pcsPerPack, setPcsPerPack] = useState('');
   const [packPerDos, setPackPerDos] = useState('');
-  
-  // State untuk modal edit
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [editedItemData, setEditedItemData] = useState({});
-
-  // State lain-lain
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showScanner, setShowScanner] = useState(false);
   const [scanningFor, setScanningFor] = useState(null);
 
-  // useEffect untuk mengambil data awal dari Firebase
   useEffect(() => {
     const masterItemsRef = ref(db, 'master_items/');
     onValue(masterItemsRef, (snapshot) => {
       const data = snapshot.val();
       const itemList = data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : [];
       setMasterItems(itemList);
-      setFilteredItems(itemList);
-      setLoading(false);
     });
-
     const suppliersRef = ref(db, 'suppliers/');
     onValue(suppliersRef, (snapshot) => {
       const data = snapshot.val();
       setSuppliers(data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : []);
     });
-
     const categoriesRef = ref(db, 'categories/');
     onValue(categoriesRef, (snapshot) => {
       const data = snapshot.val();
       const loadedCategories = data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : [];
       setCategories(loadedCategories);
+      setLoading(false);
     });
   }, []);
 
-  // useEffect khusus untuk proses filtering
   useEffect(() => {
     let items = [...masterItems];
     if (searchTerm) {
@@ -81,7 +67,14 @@ function KelolaMasterBarang() {
   }, [searchTerm, filterCategory, filterSupplier, masterItems]);
 
   const openScanner = (type) => { setScanningFor(type); setShowScanner(true); };
-  const handleScanResult = (scannedCode) => { if (scanningFor === 'pcs') { setBarcodePcs(scannedCode); } else if (scanningFor === 'dos') { setBarcodeDos(scannedCode); } setShowScanner(false); };
+  const handleScanResult = (scannedCode) => {
+    if (scanningFor === 'pcs') {
+      setBarcodePcs(scannedCode);
+    } else if (scanningFor === 'dos') {
+      setBarcodeDos(scannedCode);
+    }
+    setShowScanner(false);
+  };
   const resetForm = () => { setBarcodePcs(''); setBarcodeDos(''); setName(''); setCategory(''); setSelectedSupplierId(''); setSelectedSubSupplierName(''); setPcsPerPack(''); setPackPerDos(''); };
 
   const handleSubmit = async (e) => {
@@ -228,7 +221,6 @@ function KelolaMasterBarang() {
       {showScanner && (
         <CameraBarcodeScanner onScan={handleScanResult} onClose={() => setShowScanner(false)} />
       )}
-
       <div className="p-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1">
           <form onSubmit={handleSubmit} className="card bg-white shadow-lg p-6 space-y-2">
@@ -268,7 +260,6 @@ function KelolaMasterBarang() {
             <div className="form-control mt-4"><button type="submit" className="btn btn-primary">Simpan ke Master</button></div>
           </form>
         </div>
-
         <div className="lg:col-span-2">
           <div className="card bg-white shadow-lg p-4 mb-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -292,7 +283,6 @@ function KelolaMasterBarang() {
                 </div>
               </div>
           </div>
-          
           <div className="overflow-x-auto bg-white rounded-lg shadow-lg">
             <table className="table w-full">
               <thead className="bg-gray-200">
@@ -318,7 +308,6 @@ function KelolaMasterBarang() {
           </div>
         </div>
       </div>
-
       {isEditModalOpen && editingItem && (
         <div className="modal modal-open">
           <div className="modal-box w-11/12 max-w-2xl">
@@ -348,5 +337,4 @@ function KelolaMasterBarang() {
     </>
   );
 }
-
 export default KelolaMasterBarang;

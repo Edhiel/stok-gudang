@@ -2,47 +2,34 @@ import React, { useState, useEffect } from 'react';
 import { ref, onValue, get, runTransaction, push, serverTimestamp } from 'firebase/database';
 import { db } from '../firebaseConfig';
 import CameraBarcodeScanner from './CameraBarcodeScanner';
+import toast from 'react-hot-toast';
 
 function StokKeluar({ userProfile }) {
-  // State untuk data header
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [storeName, setStoreName] = useState('');
-  const [driverName, setDriverName] = useState(''); // <-- Sudah ada
-  const [licensePlate, setLicensePlate] = useState(''); // <-- Sudah ada
-
-  // State untuk item
+  const [driverName, setDriverName] = useState('');
+  const [licensePlate, setLicensePlate] = useState('');
   const [availableItems, setAvailableItems] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [itemStock, setItemStock] = useState(0);
-
-  // State untuk kuantitas
   const [dosQty, setDosQty] = useState(0);
   const [packQty, setPackQty] = useState(0);
   const [pcsQty, setPcsQty] = useState(0);
-  
   const [transactionItems, setTransactionItems] = useState([]);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [showScanner, setShowScanner] = useState(false);
 
   useEffect(() => {
     if (!userProfile.depotId) return;
-
     const masterItemsRef = ref(db, 'master_items');
     get(masterItemsRef).then((masterSnapshot) => {
       const masterItems = masterSnapshot.val() || {};
-      
       const stockRef = ref(db, `depots/${userProfile.depotId}/stock`);
       onValue(stockRef, (stockSnapshot) => {
         const stockData = stockSnapshot.val() || {};
         const available = Object.keys(stockData)
           .filter(itemId => (stockData[itemId].totalStockInPcs || 0) > 0)
-          .map(itemId => ({
-            id: itemId,
-            ...masterItems[itemId],
-            totalStockInPcs: stockData[itemId].totalStockInPcs
-          }));
+          .map(itemId => ({ id: itemId, ...masterItems[itemId], totalStockInPcs: stockData[itemId].totalStockInPcs }));
         setAvailableItems(available);
       });
     });
@@ -53,7 +40,7 @@ function StokKeluar({ userProfile }) {
     if (foundItem) {
       handleSelectItem(foundItem);
     } else {
-      alert("Barang dengan barcode ini tidak ditemukan atau stok kosong.");
+      toast.error("Barang tidak ditemukan atau stok kosong.");
     }
     setShowScanner(false);
   };
@@ -67,11 +54,11 @@ function StokKeluar({ userProfile }) {
   };
   
   const handleAddItemToList = () => {
-    if (!selectedItem) { alert("Pilih barang dulu."); return; }
+    if (!selectedItem) { toast.error("Pilih barang dulu."); return; }
     const totalPcs = (Number(dosQty) * (selectedItem.conversions.Dos?.inPcs || 1)) + (Number(packQty) * (selectedItem.conversions.Pack?.inPcs || 1)) + (Number(pcsQty));
-    if (totalPcs <= 0) { alert("Masukkan jumlah yang valid."); return; }
+    if (totalPcs <= 0) { toast.error("Masukkan jumlah yang valid."); return; }
     if (totalPcs > itemStock) {
-        alert(`Stok tidak cukup! Sisa stok ${selectedItem.name} hanya ${itemStock} Pcs.`);
+        toast.error(`Stok tidak cukup! Sisa stok hanya ${itemStock} Pcs.`);
         return;
     }
     setTransactionItems([...transactionItems, { id: selectedItem.id, name: selectedItem.name, quantityInPcs: totalPcs, displayQty: `${dosQty}.${packQty}.${pcsQty}` }]);
@@ -84,42 +71,31 @@ function StokKeluar({ userProfile }) {
   
   const handleSaveTransaction = async () => {
     if (!invoiceNumber || !storeName || transactionItems.length === 0) {
-      setError("No. Faktur, Nama Toko, dan minimal 1 barang wajib diisi.");
+      toast.error("No. Faktur, Nama Toko, dan minimal 1 barang wajib diisi.");
       return;
     }
-    setError(''); setSuccess('');
-
     try {
       for (const transItem of transactionItems) {
         const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${transItem.id}`);
         await runTransaction(stockRef, (currentStock) => {
           if (currentStock) {
             const currentTotal = currentStock.totalStockInPcs || 0;
-            if (currentTotal < transItem.quantityInPcs) {
-              throw new Error(`Stok untuk ${transItem.name} tidak cukup.`);
-            }
+            if (currentTotal < transItem.quantityInPcs) { throw new Error(`Stok untuk ${transItem.name} tidak cukup.`); }
             currentStock.totalStockInPcs = currentTotal - transItem.quantityInPcs;
           }
           return currentStock;
         });
       }
-
       const transactionsRef = ref(db, `depots/${userProfile.depotId}/transactions`);
       await push(transactionsRef, {
-        type: 'Stok Keluar',
-        invoiceNumber,
-        storeName,
-        driverName,
-        licensePlate,
-        items: transactionItems,
-        user: userProfile.fullName,
-        timestamp: serverTimestamp()
+        type: 'Stok Keluar', invoiceNumber, storeName, driverName,
+        licensePlate, items: transactionItems, user: userProfile.fullName, timestamp: serverTimestamp()
       });
-      setSuccess("Transaksi stok keluar berhasil disimpan!");
+      toast.success("Transaksi stok keluar berhasil disimpan!");
       setInvoiceNumber(''); setStoreName(''); setDriverName(''); setLicensePlate('');
       setTransactionItems([]);
     } catch (err) {
-      setError(`Gagal menyimpan transaksi: ${err.message}`);
+      toast.error(`Gagal menyimpan transaksi: ${err.message}`);
       console.error(err);
     }
   };
@@ -130,14 +106,11 @@ function StokKeluar({ userProfile }) {
 
   return (
     <>
-      {showScanner && <CameraBarcodeScanner onDetected={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
+      {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
       <div className="p-8">
         <div className="card bg-white shadow-lg w-full">
           <div className="card-body">
             <h2 className="card-title text-2xl">Form Stok Keluar</h2>
-            {success && <div role="alert" className="alert alert-success"><span>{success}</span></div>}
-            {error && <div role="alert" className="alert alert-error"><span>{error}</span></div>}
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 p-4 border rounded-lg">
               <div className="form-control">
                 <label className="label"><span className="label-text font-bold">No. Faktur</span></label>
@@ -156,7 +129,6 @@ function StokKeluar({ userProfile }) {
                 <input type="text" value={licensePlate} onChange={(e) => setLicensePlate(e.target.value)} className="input input-bordered" />
               </div>
             </div>
-
             <div className="divider">Detail Barang</div>
             <div className="p-4 border rounded-lg bg-base-200">
               <div className="form-control dropdown">
@@ -186,7 +158,6 @@ function StokKeluar({ userProfile }) {
                 </div>
               )}
             </div>
-
             <div className="divider">Barang dalam Transaksi Ini</div>
             <div className="overflow-x-auto">
               <table className="table w-full">
@@ -198,7 +169,6 @@ function StokKeluar({ userProfile }) {
                 </tbody>
               </table>
             </div>
-
             <div className="form-control mt-6">
               <button type="button" onClick={handleSaveTransaction} className="btn btn-primary btn-lg" disabled={transactionItems.length === 0}>Simpan Seluruh Transaksi</button>
             </div>

@@ -2,43 +2,32 @@ import React, { useState, useEffect } from 'react';
 import { ref, onValue, get, runTransaction, push, serverTimestamp } from 'firebase/database';
 import { db } from '../firebaseConfig';
 import CameraBarcodeScanner from './CameraBarcodeScanner';
+import toast from 'react-hot-toast';
 
 function StokMasuk({ userProfile }) {
-  // State untuk data header
   const [suratJalan, setSuratJalan] = useState('');
-  const [selectedSupplier, setSelectedSupplier] = useState(''); // <-- Diubah
+  const [selectedSupplier, setSelectedSupplier] = useState('');
   const [driverName, setDriverName] = useState('');
   const [licensePlate, setLicensePlate] = useState('');
-
-  // State untuk item dan data master
   const [availableItems, setAvailableItems] = useState([]);
-  const [suppliers, setSuppliers] = useState([]); // <-- Untuk dropdown
+  const [suppliers, setSuppliers] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [itemStock, setItemStock] = useState({ total: 0, damaged: 0 });
-
-  // State untuk kuantitas
   const [dosQty, setDosQty] = useState(0);
   const [packQty, setPackQty] = useState(0);
   const [pcsQty, setPcsQty] = useState(0);
-  
   const [transactionItems, setTransactionItems] = useState([]);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [showScanner, setShowScanner] = useState(false);
 
   useEffect(() => {
     if (!userProfile.depotId) return;
-
-    // Ambil daftar supplier untuk dropdown
     const suppliersRef = ref(db, 'suppliers');
     onValue(suppliersRef, (snapshot) => {
       const data = snapshot.val() || {};
       const supplierList = Object.keys(data).map(key => ({ id: key, ...data[key] }));
       setSuppliers(supplierList);
     });
-
-    // Ambil daftar barang yang relevan untuk depo ini
     const masterItemsRef = ref(db, 'master_items');
     const assignedSuppliersRef = ref(db, `depots/${userProfile.depotId}/info/assignedSuppliers`);
     get(assignedSuppliersRef).then((snapshot) => {
@@ -57,7 +46,7 @@ function StokMasuk({ userProfile }) {
     if (foundItem) {
       handleSelectItem(foundItem);
     } else {
-      alert("Barang dengan barcode ini tidak ditemukan atau bukan dari supplier yang dialokasikan untuk depo Anda.");
+      toast.error("Barang tidak ditemukan atau bukan dari supplier teralokasi.");
     }
     setShowScanner(false);
   };
@@ -75,9 +64,9 @@ function StokMasuk({ userProfile }) {
   };
   
   const handleAddItemToList = () => {
-    if (!selectedItem) { alert("Pilih barang dulu."); return; }
+    if (!selectedItem) { toast.error("Pilih barang dulu."); return; }
     const totalPcs = (Number(dosQty) * (selectedItem.conversions.Dos?.inPcs || 1)) + (Number(packQty) * (selectedItem.conversions.Pack?.inPcs || 1)) + (Number(pcsQty));
-    if (totalPcs <= 0) { alert("Masukkan jumlah yang valid."); return; }
+    if (totalPcs <= 0) { toast.error("Masukkan jumlah yang valid."); return; }
     setTransactionItems([...transactionItems, { id: selectedItem.id, name: selectedItem.name, quantityInPcs: totalPcs, displayQty: `${dosQty}.${packQty}.${pcsQty}` }]);
     setSelectedItem(null); setSearchTerm(''); setDosQty(0); setPackQty(0); setPcsQty(0);
   };
@@ -88,11 +77,9 @@ function StokMasuk({ userProfile }) {
 
   const handleSaveTransaction = async () => {
     if (!suratJalan || !selectedSupplier || transactionItems.length === 0) {
-      setError("No. Surat Jalan, Supplier, dan minimal 1 barang wajib diisi.");
+      toast.error("No. Surat Jalan, Supplier, dan minimal 1 barang wajib diisi.");
       return;
     }
-    setError(''); setSuccess('');
-
     try {
       for (const transItem of transactionItems) {
         const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${transItem.id}`);
@@ -104,25 +91,18 @@ function StokMasuk({ userProfile }) {
           return currentStock;
         });
       }
-
       const transactionsRef = ref(db, `depots/${userProfile.depotId}/transactions`);
       const supplierData = suppliers.find(s => s.id === selectedSupplier);
       await push(transactionsRef, {
-        type: 'Stok Masuk',
-        suratJalan,
-        supplierId: selectedSupplier,
-        supplierName: supplierData.name,
-        driverName,
-        licensePlate,
-        items: transactionItems,
-        user: userProfile.fullName,
-        timestamp: serverTimestamp()
+        type: 'Stok Masuk', suratJalan, supplierId: selectedSupplier,
+        supplierName: supplierData.name, driverName, licensePlate,
+        items: transactionItems, user: userProfile.fullName, timestamp: serverTimestamp()
       });
-      setSuccess("Transaksi stok masuk berhasil disimpan!");
+      toast.success("Transaksi stok masuk berhasil disimpan!");
       setSuratJalan(''); setSelectedSupplier(''); setDriverName(''); setLicensePlate('');
       setTransactionItems([]);
     } catch (err) {
-      setError("Gagal menyimpan transaksi.");
+      toast.error("Gagal menyimpan transaksi.");
       console.error(err);
     }
   };
@@ -133,14 +113,11 @@ function StokMasuk({ userProfile }) {
 
   return (
     <>
-      {showScanner && <CameraBarcodeScanner onDetected={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
+      {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
       <div className="p-8">
         <div className="card bg-white shadow-lg w-full">
           <div className="card-body">
             <h2 className="card-title text-2xl">Form Stok Masuk</h2>
-            {success && <div role="alert" className="alert alert-success"><span>{success}</span></div>}
-            {error && <div role="alert" className="alert alert-error"><span>{error}</span></div>}
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 p-4 border rounded-lg">
               <div className="form-control">
                 <label className="label"><span className="label-text font-bold">No. Surat Jalan</span></label>
@@ -148,15 +125,9 @@ function StokMasuk({ userProfile }) {
               </div>
               <div className="form-control">
                 <label className="label"><span className="label-text font-bold">Nama Vendor/Supplier</span></label>
-                <select 
-                  value={selectedSupplier} 
-                  onChange={(e) => setSelectedSupplier(e.target.value)} 
-                  className="select select-bordered"
-                >
+                <select value={selectedSupplier} onChange={(e) => setSelectedSupplier(e.target.value)} className="select select-bordered">
                     <option value="">Pilih Supplier</option>
-                    {suppliers.map(sup => (
-                        <option key={sup.id} value={sup.id}>{sup.name}</option>
-                    ))}
+                    {suppliers.map(sup => (<option key={sup.id} value={sup.id}>{sup.name}</option>))}
                 </select>
               </div>
               <div className="form-control">
@@ -168,7 +139,6 @@ function StokMasuk({ userProfile }) {
                 <input type="text" value={licensePlate} onChange={(e) => setLicensePlate(e.target.value)} className="input input-bordered" />
               </div>
             </div>
-
             <div className="divider">Detail Barang</div>
             <div className="p-4 border rounded-lg bg-base-200">
               <div className="form-control dropdown">
