@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* --- Tambahan untuk Print --- */
+
+/* Aturan untuk halaman saat dicetak */
+@page {
+  size: A4; /* Atur ukuran kertas, bisa juga 'letter' */
+  margin: 0;  /* Menghilangkan header & footer bawaan browser */
+}
+
+/* Aturan spesifik saat mode cetak aktif */
+@media print {
+  /* Atur margin utama di body agar konten tidak mepet tepi kertas */
+  body {
+    margin: 1.5cm;
+  }
+}
