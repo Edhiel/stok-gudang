@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Html5QrcodeScanner, Html5QrcodeScanType } from 'html5-qrcode';
+// Hapus Html5QrcodeScanType yang tidak perlu
+import { Html5Qrcode } from 'html5-qrcode';
 
 function CameraBarcodeScanner({ onScan, onClose }) {
   const scannerRef = useRef(null);
@@ -11,23 +12,19 @@ function CameraBarcodeScanner({ onScan, onClose }) {
   useEffect(() => {
     const scannerId = 'qr-reader';
     
-    // --- PERUBAHAN UTAMA: KONFIGURASI KAMERA LEBIH DETAIL ---
+    // --- PERBAIKAN UTAMA ADA DI SINI ---
     const config = { 
       fps: 10, 
       qrbox: { width: 250, height: 250 },
-      // Minta kamera belakang secara spesifik
-      camera: { facingMode: "environment" },
-      // Minta stream video dengan kualitas lebih tinggi & coba aktifkan autofocus
-      videoConstraints: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        advanced: [
-          { focusMode: "continuous" }
-        ]
-      },
-      // Hanya scan tipe barcode 1D (produk)
+      // Gunakan daftar format barcode yang valid sebagai string
       formatsToSupport: [
-          Html5QrcodeScanType.SCAN_TYPE_BARCODE,
+        "EAN_13",
+        "EAN_8",
+        "UPC_A",
+        "UPC_E",
+        "CODE_128",
+        "CODE_39",
+        "ITF"
       ],
     };
 
@@ -36,18 +33,34 @@ function CameraBarcodeScanner({ onScan, onClose }) {
     };
 
     const onScanFailure = (errorMsg) => {
-      // Fungsi ini sengaja dikosongkan untuk menghindari spam console
-      // console.warn(`Scan Gagal: ${errorMsg}`);
+      // Abaikan error
+    };
+    
+    // Ganti Html5QrcodeScanner menjadi Html5Qrcode
+    const html5QrcodeScanner = new Html5Qrcode(scannerId, false);
+    
+    const startScanner = async () => {
+      try {
+        await html5QrcodeScanner.start(
+          { facingMode: "environment" }, // Kamera belakang
+          config,
+          onScanSuccess,
+          onScanFailure
+        );
+        scannerRef.current = html5QrcodeScanner;
+      } catch (err) {
+        console.error("Gagal memulai scanner:", err);
+        setError("Kamera tidak ditemukan atau gagal dimulai.");
+      }
     };
 
-    scannerRef.current = new Html5QrcodeScanner(scannerId, config, false);
-    scannerRef.current.render(onScanSuccess, onScanFailure);
+    startScanner();
 
     // Cleanup function
     return () => {
       if (scannerRef.current) {
-        scannerRef.current.clear().catch(error => {
-          console.error("Gagal membersihkan scanner.", error);
+        scannerRef.current.stop().catch(error => {
+          console.error("Gagal menghentikan scanner.", error);
         });
       }
     };
@@ -59,7 +72,8 @@ function CameraBarcodeScanner({ onScan, onClose }) {
         <h3 className="text-center text-lg font-semibold mb-2">
           Scan Barcode
         </h3>
-        <div id="qr-reader" className="mb-2 border"></div>
+        {/* Tambahkan style untuk memastikan elemen tidak tersembunyi */}
+        <div id="qr-reader" className="mb-2 border" style={{ width: '100%', minHeight: '300px' }}></div>
         {error && <p className="text-red-500 text-sm text-center">{error}</p>}
         <button
           onClick={onClose}
