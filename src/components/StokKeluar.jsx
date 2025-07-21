@@ -95,7 +95,7 @@ function StokKeluar({ userProfile }) {
       setInvoiceNumber(''); setStoreName(''); setDriverName(''); setLicensePlate('');
       setTransactionItems([]);
     } catch (err) {
-      toast.error(`Gagal menyimpan transaksi: ${err.message}`);
+      toast.error(`Gagal menyimpan: ${err.message}`);
       console.error(err);
     }
   };
@@ -106,7 +106,7 @@ function StokKeluar({ userProfile }) {
 
   return (
     <>
-      {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
+      {showScanner && <CameraBarcodeScanner onScan={handleScanResult} onClose={() => setShowScanner(false)} />}
       <div className="p-8">
         <div className="card bg-white shadow-lg w-full">
           <div className="card-body">
@@ -134,7 +134,7 @@ function StokKeluar({ userProfile }) {
               <div className="form-control dropdown">
                 <label className="label"><span className="label-text">Cari Barang (Scan atau Ketik Nama)</span></label>
                 <div className="join w-full">
-                  <input type="text" placeholder="Hanya barang dari supplier teralokasi akan muncul" className="input input-bordered join-item w-full" value={searchTerm} onChange={(e) => {setSearchTerm(e.target.value); setSelectedItem(null);}}/>
+                  <input type="text" placeholder="Hanya barang dengan stok tersedia akan muncul" className="input input-bordered join-item w-full" value={searchTerm} onChange={(e) => {setSearchTerm(e.target.value); setSelectedItem(null);}}/>
                   <button type="button" onClick={() => setShowScanner(true)} className="btn btn-primary join-item">Scan</button>
                 </div>
                 {filteredItems.length > 0 && !selectedItem && (

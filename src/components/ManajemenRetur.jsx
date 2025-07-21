@@ -70,7 +70,7 @@ const TabReturBaik = ({ userProfile }) => {
 
   return (
     <>
-      {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
+      {showScanner && <CameraBarcodeScanner onScan={handleScanResult} onClose={() => setShowScanner(false)} />}
       <div className="p-4 space-y-4">
         <div className="p-4 border rounded-lg bg-base-200 space-y-4">
           <h4 className="font-bold">Informasi Retur</h4>
@@ -176,7 +176,7 @@ const TabReturRusak = ({ userProfile }) => {
 
   return (
     <>
-      {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
+      {showScanner && <CameraBarcodeScanner onScan={handleScanResult} onClose={() => setShowScanner(false)} />}
       <div className="p-4 space-y-4">
         <div className="p-4 border rounded-lg bg-base-200 space-y-4">
           <h4 className="font-bold">Informasi Retur Rusak</h4>
@@ -203,18 +203,25 @@ const TabReturRusak = ({ userProfile }) => {
   );
 };
 const TabKirimPusat = ({ userProfile }) => {
-  const [damagedItems, setDamagedItems] = useState([]);
-  const [filteredItems, setFilteredItems] = useState([]);
+  const [damagedItems, setDamagedItems] = useState([]); // Data asli dari Firebase
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filterSupplier, setFilterSupplier] = useState('semua');
+
+  // --- 1. STATE BARU UNTUK FILTER DAN PENCARIAN ---
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterSupplier, setFilterSupplier] = useState(''); // Ganti 'semua' menjadi string kosong
+  const [filteredItems, setFilteredItems] = useState([]); // Data yang akan ditampilkan
+
+  // State untuk proses pengiriman
   const [selectedForShipment, setSelectedForShipment] = useState({});
   const [showProcessForm, setShowProcessForm] = useState(false);
   const [processAction, setProcessAction] = useState('kirim');
   const [documentNumber, setDocumentNumber] = useState('');
   
+  // Mengambil data awal
   useEffect(() => {
     if (!userProfile.depotId) return;
+    
     const masterItemsRef = ref(db, 'master_items');
     get(masterItemsRef).then((masterSnapshot) => {
         const masterItems = masterSnapshot.val() || {};
@@ -225,10 +232,10 @@ const TabKirimPusat = ({ userProfile }) => {
                 .filter(itemId => (stockData[itemId].damagedStockInPcs || 0) > 0)
                 .map(itemId => ({ id: itemId, ...(masterItems[itemId] || {}), damagedStockInPcs: stockData[itemId].damagedStockInPcs }));
             setDamagedItems(damagedOnly);
-            setFilteredItems(damagedOnly);
             setLoading(false);
         });
     });
+
     const suppliersRef = ref(db, 'suppliers/');
     onValue(suppliersRef, (snapshot) => {
       const data = snapshot.val();
@@ -237,13 +244,20 @@ const TabKirimPusat = ({ userProfile }) => {
     });
   }, [userProfile.depotId]);
 
-  const handleApplyFilter = () => {
+  // --- 2. useEffect BARU UNTUK MENJALANKAN FILTER ---
+  useEffect(() => {
     let items = [...damagedItems];
-    if (filterSupplier !== 'semua') {
-        items = items.filter(item => item.supplierId === filterSupplier);
+
+    if (filterSupplier) {
+      items = items.filter(item => item.supplierId === filterSupplier);
     }
+    if (searchTerm) {
+      items = items.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()));
+    }
+
     setFilteredItems(items);
-  };
+  }, [searchTerm, filterSupplier, damagedItems]);
+
 
   const handleSelectItem = (itemId) => {
     setSelectedForShipment(prev => ({ ...prev, [itemId]: !prev[itemId] }));
@@ -271,12 +285,9 @@ const TabKirimPusat = ({ userProfile }) => {
         const updates = {};
         const transactionItems = [];
         for (const item of itemsToAction) {
-            const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${item.id}`);
-            const newDamagedStock = 0; // Stok rusak jadi 0 setelah diproses
-            updates[`/depots/${userProfile.depotId}/stock/${item.id}/damagedStockInPcs`] = newDamagedStock;
+            updates[`/depots/${userProfile.depotId}/stock/${item.id}/damagedStockInPcs`] = 0;
             transactionItems.push({
-                id: item.id,
-                name: item.name,
+                id: item.id, name: item.name,
                 quantityInPcs: item.damagedStockInPcs,
                 displayQty: formatToDPP(item.damagedStockInPcs, item.conversions),
             });
@@ -310,19 +321,48 @@ const TabKirimPusat = ({ userProfile }) => {
   return (
     <div className="p-4 space-y-4 printable-area">
       <h3 className="text-xl font-semibold">Rekapitulasi Stok Rusak</h3>
+      {/* --- 3. PANEL FILTER DAN PENCARIAN YANG DIPERBARUI --- */}
       <div className="p-4 border rounded-lg bg-base-200 mb-4 space-y-4 print:hidden">
         <div className="flex flex-wrap gap-4 items-end">
-            <div className="form-control"><label className="label"><span className="label-text">Filter per Supplier</span></label><select value={filterSupplier} onChange={(e) => setFilterSupplier(e.target.value)} className="select select-bordered w-full max-w-xs"><option value="semua">Semua Supplier</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
-            <button onClick={handleApplyFilter} className="btn btn-accent">Terapkan</button>
+            <div className="form-control">
+                <label className="label"><span className="label-text">Cari Nama Barang</span></label>
+                <input 
+                    type="text" 
+                    placeholder="Ketik untuk mencari..." 
+                    className="input input-bordered w-full max-w-xs"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
+            <div className="form-control">
+                <label className="label"><span className="label-text">Filter per Supplier</span></label>
+                <select 
+                    value={filterSupplier} 
+                    onChange={(e) => setFilterSupplier(e.target.value)} 
+                    className="select select-bordered w-full max-w-xs"
+                >
+                    <option value="">Semua Supplier</option>
+                    {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+            </div>
         </div>
       </div>
+
       <div className="divider">Daftar Barang Sesuai Filter</div>
       <div className="overflow-x-auto">
         <table className="table w-full">
-            <thead className='bg-gray-200'><tr><th><input type="checkbox" className="checkbox print:hidden" onChange={(e) => setSelectedForShipment(filteredItems.reduce((acc, item) => ({...acc, [item.id]: e.target.checked}), {}))} /></th><th>Nama Barang</th><th>Jumlah Rusak</th><th>Supplier</th></tr></thead>
+            <thead className='bg-gray-200'>
+                <tr>
+                    <th><input type="checkbox" className="checkbox print:hidden" onChange={(e) => setSelectedForShipment(filteredItems.reduce((acc, item) => ({...acc, [item.id]: e.target.checked}), {}))} /></th>
+                    <th>Nama Barang</th>
+                    <th>Jumlah Rusak</th>
+                    <th>Supplier</th>
+                </tr>
+            </thead>
             <tbody>
-                {loading ? (<tr><td colSpan="4" className="text-center"><span className="loading loading-dots"></span></td></tr>) : 
-                 (filteredItems.map(item => ( <tr key={item.id}><th><label><input type="checkbox" checked={!!selectedForShipment[item.id]} onChange={() => handleSelectItem(item.id)} className="checkbox print:hidden" /></label></th><td>{item.name}</td><td>{formatToDPP(item.damagedStockInPcs, item.conversions)}</td><td>{item.supplierName}</td></tr> )))}
+                {loading ? (<tr><td colSpan="4" className="text-center"><span className="loading loading-dots"></span></td></tr>) 
+                 : filteredItems.length === 0 ? (<tr><td colSpan="4" className="text-center">Tidak ada data ditemukan.</td></tr>)
+                 : (filteredItems.map(item => ( <tr key={item.id}><th><label><input type="checkbox" checked={!!selectedForShipment[item.id]} onChange={() => handleSelectItem(item.id)} className="checkbox print:hidden" /></label></th><td>{item.name}</td><td>{formatToDPP(item.damagedStockInPcs, item.conversions)}</td><td>{item.supplierName}</td></tr> )))}
             </tbody>
         </table>
       </div>

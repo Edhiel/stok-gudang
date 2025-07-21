@@ -15,8 +15,6 @@ function BuatOrder({ userProfile, setPage }) {
   const [packQty, setPackQty] = useState(0);
   const [pcsQty, setPcsQty] = useState(0);
   const [orderItems, setOrderItems] = useState([]);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [showScanner, setShowScanner] = useState(false);
 
   useEffect(() => {
@@ -66,10 +64,9 @@ function BuatOrder({ userProfile, setPage }) {
   
   const handleSaveOrder = async () => {
     if (!orderNumber || !storeName || orderItems.length === 0) {
-      setError("No. Order, Nama Toko, dan minimal 1 barang wajib diisi.");
+      toast.error("No. Order, Nama Toko, dan minimal 1 barang wajib diisi.");
       return;
     }
-    setError(''); setSuccess('');
     try {
       for (const orderItem of orderItems) {
         const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${orderItem.id}`);
@@ -88,12 +85,10 @@ function BuatOrder({ userProfile, setPage }) {
         orderNumber: orderNumber, storeName: storeName, items: orderItems,
         status: 'Menunggu Approval Admin', salesName: userProfile.fullName, createdAt: serverTimestamp()
       });
-      setSuccess("Order berhasil disimpan dan stok telah dibooking.");
-      toast.success("Order berhasil disimpan.");
+      toast.success("Order berhasil disimpan dan stok telah dibooking.");
       setOrderNumber(''); setStoreName(''); setOrderItems([]);
     } catch (err) {
-      setError(`Gagal menyimpan order: ${err.message}`);
-      toast.error(`Gagal menyimpan: ${err.message}`);
+      toast.error(`Gagal menyimpan order: ${err.message}`);
       console.error(err);
     }
   };
@@ -104,19 +99,15 @@ function BuatOrder({ userProfile, setPage }) {
 
   return (
     <>
-      {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
+      {showScanner && <CameraBarcodeScanner onScan={handleScanResult} onClose={() => setShowScanner(false)} />}
       <div className="p-4 md:p-8">
         <div className="card bg-white shadow-lg w-full">
           <div className="card-body">
             <h2 className="card-title text-2xl">Buat Order Penjualan</h2>
-            {success && <div role="alert" className="alert alert-success"><span>{success}</span></div>}
-            {error && <div role="alert" className="alert alert-error"><span>{error}</span></div>}
-            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 p-4 border rounded-lg">
               <div className="form-control"><label className="label"><span className="label-text font-bold">No. Order / PO</span></label><input type="text" value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} className="input input-bordered" /></div>
               <div className="form-control"><label className="label"><span className="label-text font-bold">Nama Toko</span></label><input type="text" value={storeName} onChange={(e) => setStoreName(e.target.value)} className="input input-bordered" /></div>
             </div>
-
             <div className="divider">Detail Barang</div>
             <div className="p-4 border rounded-lg bg-base-200">
               <div className="form-control dropdown"><label className="label"><span className="label-text">Cari Barang (Scan atau Ketik Nama)</span></label><div className="join w-full"><input type="text" placeholder="Hanya barang dengan stok tersedia akan muncul" className="input input-bordered join-item w-full" value={searchTerm} onChange={(e) => {setSearchTerm(e.target.value); setSelectedItem(null);}}/><button type="button" onClick={() => setShowScanner(true)} className="btn btn-primary join-item">Scan</button></div>
@@ -130,7 +121,6 @@ function BuatOrder({ userProfile, setPage }) {
                 <div className="mt-4"><p className="font-bold">Barang Terpilih: {selectedItem.name}</p><p className="text-sm">Sisa Stok Tersedia: <span className='font-bold text-lg'>{itemStock}</span> Pcs</p><div className="mt-2 grid grid-cols-3 md:grid-cols-4 gap-4 items-end"><div className="form-control"><label className="label-text">DOS</label><input type="number" value={dosQty} onChange={(e) => setDosQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div><div className="form-control"><label className="label-text">PACK</label><input type="number" value={packQty} onChange={(e) => setPackQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div><div className="form-control"><label className="label-text">PCS</label><input type="number" value={pcsQty} onChange={(e) => setPcsQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div><button type="button" onClick={handleAddItemToList} className="btn btn-secondary">Tambah ke Order</button></div></div>
               )}
             </div>
-
             <div className="divider">Barang dalam Order Ini</div>
             <div className="overflow-x-auto"><table className="table w-full"><thead><tr><th>Nama Barang</th><th>Jumlah Dipesan</th><th>Aksi</th></tr></thead><tbody>{orderItems.map((item, index) => (<tr key={index}><td>{item.name}</td><td>{item.displayQty}</td><td><button onClick={() => handleRemoveFromList(index)} className="btn btn-xs btn-error">Hapus</button></td></tr>))}</tbody></table></div>
             <div className="form-control mt-6"><button type="button" onClick={handleSaveOrder} className="btn btn-primary btn-lg" disabled={orderItems.length === 0}>Simpan Order</button></div>
