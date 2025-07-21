@@ -1,4 +1,4 @@
-import React, 'useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 
 // Komponen baru untuk Viewfinder (Jendela Bidik)
