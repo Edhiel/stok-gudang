@@ -53,7 +53,7 @@ function StokKeluar({ userProfile }) {
     setItemStock(snapshot.exists() ? snapshot.val() : 0);
   };
   
-  const handleAddItemToList = () => {
+  const handleAddItemToList = (isBonus = false) => {
     if (!selectedItem) { toast.error("Pilih barang dulu."); return; }
     const totalPcs = (Number(dosQty) * (selectedItem.conversions.Dos?.inPcs || 1)) + (Number(packQty) * (selectedItem.conversions.Pack?.inPcs || 1)) + (Number(pcsQty));
     if (totalPcs <= 0) { toast.error("Masukkan jumlah yang valid."); return; }
@@ -61,7 +61,14 @@ function StokKeluar({ userProfile }) {
         toast.error(`Stok tidak cukup! Sisa stok hanya ${itemStock} Pcs.`);
         return;
     }
-    setTransactionItems([...transactionItems, { id: selectedItem.id, name: selectedItem.name, quantityInPcs: totalPcs, displayQty: `${dosQty}.${packQty}.${pcsQty}` }]);
+    const newItem = {
+      id: selectedItem.id,
+      name: selectedItem.name,
+      quantityInPcs: totalPcs,
+      displayQty: `${dosQty}.${packQty}.${pcsQty}`,
+      isBonus: isBonus
+    };
+    setTransactionItems([...transactionItems, newItem]);
     setSelectedItem(null); setSearchTerm(''); setDosQty(0); setPackQty(0); setPcsQty(0);
   };
 
@@ -153,7 +160,10 @@ function StokKeluar({ userProfile }) {
                         <div className="form-control"><label className="label-text">DOS</label><input type="number" value={dosQty} onChange={(e) => setDosQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div>
                         <div className="form-control"><label className="label-text">PACK</label><input type="number" value={packQty} onChange={(e) => setPackQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div>
                         <div className="form-control"><label className="label-text">PCS</label><input type="number" value={pcsQty} onChange={(e) => setPcsQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div>
-                        <button type="button" onClick={handleAddItemToList} className="btn btn-secondary">Tambah ke Daftar</button>
+                        <div className="flex gap-2">
+                            <button type="button" onClick={() => handleAddItemToList(false)} className="btn btn-secondary">Tambah</button>
+                            <button type="button" onClick={() => handleAddItemToList(true)} className="btn btn-accent">Bonus</button>
+                        </div>
                     </div>
                 </div>
               )}
@@ -164,7 +174,14 @@ function StokKeluar({ userProfile }) {
                 <thead><tr><th>Nama Barang</th><th>Jumlah Keluar</th><th>Aksi</th></tr></thead>
                 <tbody>
                   {transactionItems.map((item, index) => (
-                    <tr key={index}><td>{item.name}</td><td>{item.displayQty}</td><td><button onClick={() => handleRemoveFromList(index)} className="btn btn-xs btn-error">Hapus</button></td></tr>
+                    <tr key={index}>
+                      <td>
+                        {item.name}
+                        {item.isBonus && <span className="badge badge-info badge-sm ml-2">Bonus</span>}
+                      </td>
+                      <td>{item.displayQty}</td>
+                      <td><button onClick={() => handleRemoveFromList(index)} className="btn btn-xs btn-error">Hapus</button></td>
+                    </tr>
                   ))}
                 </tbody>
               </table>

@@ -63,11 +63,18 @@ function StokMasuk({ userProfile }) {
     }
   };
   
-  const handleAddItemToList = () => {
+  const handleAddItemToList = (isBonus = false) => {
     if (!selectedItem) { toast.error("Pilih barang dulu."); return; }
     const totalPcs = (Number(dosQty) * (selectedItem.conversions.Dos?.inPcs || 1)) + (Number(packQty) * (selectedItem.conversions.Pack?.inPcs || 1)) + (Number(pcsQty));
     if (totalPcs <= 0) { toast.error("Masukkan jumlah yang valid."); return; }
-    setTransactionItems([...transactionItems, { id: selectedItem.id, name: selectedItem.name, quantityInPcs: totalPcs, displayQty: `${dosQty}.${packQty}.${pcsQty}` }]);
+    const newItem = { 
+      id: selectedItem.id, 
+      name: selectedItem.name, 
+      quantityInPcs: totalPcs, 
+      displayQty: `${dosQty}.${packQty}.${pcsQty}`,
+      isBonus: isBonus 
+    };
+    setTransactionItems([...transactionItems, newItem]);
     setSelectedItem(null); setSearchTerm(''); setDosQty(0); setPackQty(0); setPcsQty(0);
   };
 
@@ -96,7 +103,8 @@ function StokMasuk({ userProfile }) {
       await push(transactionsRef, {
         type: 'Stok Masuk', suratJalan, supplierId: selectedSupplier,
         supplierName: supplierData.name, driverName, licensePlate,
-        items: transactionItems, user: userProfile.fullName, timestamp: serverTimestamp()
+        items: transactionItems, 
+        user: userProfile.fullName, timestamp: serverTimestamp()
       });
       toast.success("Transaksi stok masuk berhasil disimpan!");
       setSuratJalan(''); setSelectedSupplier(''); setDriverName(''); setLicensePlate('');
@@ -125,9 +133,15 @@ function StokMasuk({ userProfile }) {
               </div>
               <div className="form-control">
                 <label className="label"><span className="label-text font-bold">Nama Vendor/Supplier</span></label>
-                <select value={selectedSupplier} onChange={(e) => setSelectedSupplier(e.target.value)} className="select select-bordered">
+                <select 
+                  value={selectedSupplier} 
+                  onChange={(e) => setSelectedSupplier(e.target.value)} 
+                  className="select select-bordered"
+                >
                     <option value="">Pilih Supplier</option>
-                    {suppliers.map(sup => (<option key={sup.id} value={sup.id}>{sup.name}</option>))}
+                    {suppliers.map(sup => (
+                        <option key={sup.id} value={sup.id}>{sup.name}</option>
+                    ))}
                 </select>
               </div>
               <div className="form-control">
@@ -139,6 +153,7 @@ function StokMasuk({ userProfile }) {
                 <input type="text" value={licensePlate} onChange={(e) => setLicensePlate(e.target.value)} className="input input-bordered" />
               </div>
             </div>
+
             <div className="divider">Detail Barang</div>
             <div className="p-4 border rounded-lg bg-base-200">
               <div className="form-control dropdown">
@@ -163,7 +178,10 @@ function StokMasuk({ userProfile }) {
                         <div className="form-control"><label className="label-text">DOS</label><input type="number" value={dosQty} onChange={(e) => setDosQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div>
                         <div className="form-control"><label className="label-text">PACK</label><input type="number" value={packQty} onChange={(e) => setPackQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div>
                         <div className="form-control"><label className="label-text">PCS</label><input type="number" value={pcsQty} onChange={(e) => setPcsQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div>
-                        <button type="button" onClick={handleAddItemToList} className="btn btn-secondary">Tambah ke Daftar</button>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => handleAddItemToList(false)} className="btn btn-secondary">Tambah</button>
+                          <button type="button" onClick={() => handleAddItemToList(true)} className="btn btn-accent">Bonus</button>
+                        </div>
                     </div>
                 </div>
               )}
@@ -174,7 +192,14 @@ function StokMasuk({ userProfile }) {
                 <thead><tr><th>Nama Barang</th><th>Jumlah Masuk</th><th>Aksi</th></tr></thead>
                 <tbody>
                   {transactionItems.map((item, index) => (
-                    <tr key={index}><td>{item.name}</td><td>{item.displayQty}</td><td><button onClick={() => handleRemoveFromList(index)} className="btn btn-xs btn-error">Hapus</button></td></tr>
+                    <tr key={index}>
+                      <td>
+                        {item.name}
+                        {item.isBonus && <span className="badge badge-info badge-sm ml-2">Bonus</span>}
+                      </td>
+                      <td>{item.displayQty}</td>
+                      <td><button onClick={() => handleRemoveFromList(index)} className="btn btn-xs btn-error">Hapus</button></td>
+                    </tr>
                   ))}
                 </tbody>
               </table>

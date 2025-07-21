@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { ref, onValue, get, update, push, serverTimestamp, runTransaction } from 'firebase/database';
 import { db } from '../firebaseConfig';
 import CameraBarcodeScanner from './CameraBarcodeScanner';
+import toast from 'react-hot-toast'; // Impor toast
 
 function FakturTertunda({ userProfile, setPage }) {
   // State untuk data header
   const [salesName, setSalesName] = useState('');
   const [storeName, setStoreName] = useState('');
-  const [driverName, setDriverName] = useState(''); // <-- Sudah ada
-  const [licensePlate, setLicensePlate] = useState(''); // <-- Sudah ada
+  const [driverName, setDriverName] = useState('');
+  const [licensePlate, setLicensePlate] = useState('');
 
   // State untuk item
   const [availableItems, setAvailableItems] = useState([]);
@@ -20,8 +21,6 @@ function FakturTertunda({ userProfile, setPage }) {
   const [pcsQty, setPcsQty] = useState(0);
   
   const [transactionItems, setTransactionItems] = useState([]);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [showScanner, setShowScanner] = useState(false);
 
   useEffect(() => {
@@ -36,7 +35,11 @@ function FakturTertunda({ userProfile, setPage }) {
 
   const handleBarcodeDetected = (scannedBarcode) => {
     const foundItem = availableItems.find(item => item.barcodePcs === scannedBarcode || item.barcodeDos === scannedBarcode);
-    if (foundItem) handleSelectItem(foundItem); else alert("Barang tidak ditemukan.");
+    if (foundItem) {
+      handleSelectItem(foundItem);
+    } else {
+      toast.error("Barang tidak ditemukan.");
+    }
     setShowScanner(false);
   };
 
@@ -49,11 +52,11 @@ function FakturTertunda({ userProfile, setPage }) {
   };
   
   const handleAddItemToList = () => {
-    if (!selectedItem) { alert("Pilih barang dulu."); return; }
+    if (!selectedItem) { toast.error("Pilih barang dulu."); return; }
     const totalPcs = (Number(dosQty) * (selectedItem.conversions.Dos?.inPcs || 1)) + (Number(packQty) * (selectedItem.conversions.Pack?.inPcs || 1)) + (Number(pcsQty));
-    if (totalPcs <= 0) { alert("Masukkan jumlah yang valid."); return; }
+    if (totalPcs <= 0) { toast.error("Masukkan jumlah yang valid."); return; }
     if (totalPcs > itemStock) {
-        alert(`Stok tidak cukup! Sisa stok ${selectedItem.name} hanya ${itemStock} Pcs.`);
+        toast.error(`Stok tidak cukup! Sisa stok ${selectedItem.name} hanya ${itemStock} Pcs.`);
         return;
     }
     setTransactionItems([...transactionItems, { id: selectedItem.id, name: selectedItem.name, quantityInPcs: totalPcs, displayQty: `${dosQty}.${packQty}.${pcsQty}` }]);
@@ -66,25 +69,12 @@ function FakturTertunda({ userProfile, setPage }) {
 
   const handleSavePendingInvoice = async () => {
     if (!salesName || !storeName || transactionItems.length === 0) {
-      setError("Nama Sales, Nama Toko, dan minimal 1 barang wajib diisi.");
+      toast.error("Nama Sales, Nama Toko, dan minimal 1 barang wajib diisi.");
       return;
     }
-    setError(''); setSuccess('');
 
     try {
-      for (const transItem of transactionItems) {
-        const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${transItem.id}`);
-        await runTransaction(stockRef, (currentStock) => {
-          if (currentStock) {
-            if ((currentStock.totalStockInPcs || 0) < transItem.quantityInPcs) {
-              throw new Error(`Stok untuk ${transItem.name} tidak cukup.`);
-            }
-            currentStock.totalStockInPcs -= transItem.quantityInPcs;
-          }
-          return currentStock;
-        });
-      }
-
+      // Tidak ada perubahan stok di sini, hanya mencatat pesanan
       const pendingInvoicesRef = ref(db, `depots/${userProfile.depotId}/pendingInvoices`);
       await push(pendingInvoicesRef, {
         status: 'Menunggu Faktur',
@@ -94,25 +84,25 @@ function FakturTertunda({ userProfile, setPage }) {
         createdAt: serverTimestamp()
       });
 
-      setSuccess("Barang berhasil dicatat sebagai 'Faktur Tertunda'. Stok telah diperbarui.");
+      toast.success("Tanda terima berhasil disimpan sebagai 'Faktur Tertunda'.");
       setSalesName(''); setStoreName(''); setDriverName(''); setLicensePlate('');
       setTransactionItems([]);
 
     } catch (err) {
-      setError(`Gagal menyimpan: ${err.message}`);
+      toast.error(`Gagal menyimpan: ${err.message}`);
       console.error(err);
     }
   };
 
   return (
     <>
-      {showScanner && <CameraBarcodeScanner onDetected={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
+      {/* --- PERBAIKAN PROP SCANNER DI SINI --- */}
+      {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
+      
       <div className="p-8">
         <div className="card bg-white shadow-lg w-full">
           <div className="card-body">
             <h2 className="card-title text-2xl">Buat Tanda Terima (Faktur Tertunda)</h2>
-            {success && <div role="alert" className="alert alert-success"><span>{success}</span></div>}
-            {error && <div role="alert" className="alert alert-error"><span>{error}</span></div>}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 p-4 border rounded-lg">
               <div className="form-control">
