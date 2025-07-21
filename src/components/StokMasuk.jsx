@@ -113,7 +113,7 @@ function StokMasuk({ userProfile }) {
 
   return (
     <>
-      {showScanner && <CameraBarcodeScanner onScan={handleScanResult} onClose={() => setShowScanner(false)} />}
+      {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
       <div className="p-8">
         <div className="card bg-white shadow-lg w-full">
           <div className="card-body">

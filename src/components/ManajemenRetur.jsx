@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react'; // <-- PERBAIKAN DI SINI
+import React, { useState, useEffect } from 'react';
 import { ref, onValue, get, update, push, serverTimestamp, runTransaction } from 'firebase/database';
 import { db } from '../firebaseConfig';
 import CameraBarcodeScanner from './CameraBarcodeScanner';
+import toast from 'react-hot-toast';
 
-// --- KOMPONEN INTERNAL UNTUK TAB 1: RETUR BAIK ---
 const TabReturBaik = ({ userProfile }) => {
   const [items, setItems] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -70,7 +70,7 @@ const TabReturBaik = ({ userProfile }) => {
 
   return (
     <>
-      {showScanner && <CameraBarcodeScanner onScan={handleScanResult} onClose={() => setShowScanner(false)} />}
+      {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
       <div className="p-4 space-y-4">
         <div className="p-4 border rounded-lg bg-base-200 space-y-4">
           <h4 className="font-bold">Informasi Retur</h4>
@@ -89,6 +89,7 @@ const TabReturBaik = ({ userProfile }) => {
     </>
   );
 };
+
 const TabReturRusak = ({ userProfile }) => {
   const [items, setItems] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -176,7 +177,7 @@ const TabReturRusak = ({ userProfile }) => {
 
   return (
     <>
-      {showScanner && <CameraBarcodeScanner onScan={handleScanResult} onClose={() => setShowScanner(false)} />}
+      {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
       <div className="p-4 space-y-4">
         <div className="p-4 border rounded-lg bg-base-200 space-y-4">
           <h4 className="font-bold">Informasi Retur Rusak</h4>
@@ -202,26 +203,21 @@ const TabReturRusak = ({ userProfile }) => {
     </>
   );
 };
+
 const TabKirimPusat = ({ userProfile }) => {
-  const [damagedItems, setDamagedItems] = useState([]); // Data asli dari Firebase
+  const [damagedItems, setDamagedItems] = useState([]);
+  const [filteredItems, setFilteredItems] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  // --- 1. STATE BARU UNTUK FILTER DAN PENCARIAN ---
+  const [filterSupplier, setFilterSupplier] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterSupplier, setFilterSupplier] = useState(''); // Ganti 'semua' menjadi string kosong
-  const [filteredItems, setFilteredItems] = useState([]); // Data yang akan ditampilkan
-
-  // State untuk proses pengiriman
   const [selectedForShipment, setSelectedForShipment] = useState({});
   const [showProcessForm, setShowProcessForm] = useState(false);
   const [processAction, setProcessAction] = useState('kirim');
   const [documentNumber, setDocumentNumber] = useState('');
   
-  // Mengambil data awal
   useEffect(() => {
     if (!userProfile.depotId) return;
-    
     const masterItemsRef = ref(db, 'master_items');
     get(masterItemsRef).then((masterSnapshot) => {
         const masterItems = masterSnapshot.val() || {};
@@ -235,7 +231,6 @@ const TabKirimPusat = ({ userProfile }) => {
             setLoading(false);
         });
     });
-
     const suppliersRef = ref(db, 'suppliers/');
     onValue(suppliersRef, (snapshot) => {
       const data = snapshot.val();
@@ -243,21 +238,17 @@ const TabKirimPusat = ({ userProfile }) => {
       setSuppliers(supplierList);
     });
   }, [userProfile.depotId]);
-
-  // --- 2. useEffect BARU UNTUK MENJALANKAN FILTER ---
+  
   useEffect(() => {
     let items = [...damagedItems];
-
     if (filterSupplier) {
       items = items.filter(item => item.supplierId === filterSupplier);
     }
     if (searchTerm) {
       items = items.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()));
     }
-
     setFilteredItems(items);
   }, [searchTerm, filterSupplier, damagedItems]);
-
 
   const handleSelectItem = (itemId) => {
     setSelectedForShipment(prev => ({ ...prev, [itemId]: !prev[itemId] }));
@@ -280,7 +271,6 @@ const TabKirimPusat = ({ userProfile }) => {
     const selectedIds = Object.keys(selectedForShipment).filter(key => selectedForShipment[key]);
     const itemsToAction = damagedItems.filter(item => selectedIds.includes(item.id));
     const actionType = processAction === 'kirim' ? 'Pengiriman BS ke Pusat' : 'Pemusnahan BS';
-
     try {
         const updates = {};
         const transactionItems = [];
@@ -292,14 +282,12 @@ const TabKirimPusat = ({ userProfile }) => {
                 displayQty: formatToDPP(item.damagedStockInPcs, item.conversions),
             });
         }
-        
         const transactionsRef = ref(db, `depots/${userProfile.depotId}/transactions`);
         const newTransactionKey = push(transactionsRef).key;
         updates[`/depots/${userProfile.depotId}/transactions/${newTransactionKey}`] = {
             type: actionType, documentNumber: documentNumber, items: transactionItems,
             user: userProfile.fullName, timestamp: serverTimestamp()
         };
-        
         await update(ref(db), updates);
         toast.success(`Aksi '${actionType}' berhasil disimpan.`);
         setShowProcessForm(false);
@@ -321,48 +309,29 @@ const TabKirimPusat = ({ userProfile }) => {
   return (
     <div className="p-4 space-y-4 printable-area">
       <h3 className="text-xl font-semibold">Rekapitulasi Stok Rusak</h3>
-      {/* --- 3. PANEL FILTER DAN PENCARIAN YANG DIPERBARUI --- */}
       <div className="p-4 border rounded-lg bg-base-200 mb-4 space-y-4 print:hidden">
         <div className="flex flex-wrap gap-4 items-end">
-            <div className="form-control">
-                <label className="label"><span className="label-text">Cari Nama Barang</span></label>
-                <input 
-                    type="text" 
-                    placeholder="Ketik untuk mencari..." 
-                    className="input input-bordered w-full max-w-xs"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                />
-            </div>
-            <div className="form-control">
-                <label className="label"><span className="label-text">Filter per Supplier</span></label>
-                <select 
-                    value={filterSupplier} 
-                    onChange={(e) => setFilterSupplier(e.target.value)} 
-                    className="select select-bordered w-full max-w-xs"
-                >
-                    <option value="">Semua Supplier</option>
-                    {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-            </div>
+          <div className="form-control">
+              <label className="label"><span className="label-text">Cari Nama Barang</span></label>
+              <input type="text" placeholder="Ketik untuk mencari..." className="input input-bordered w-full max-w-xs" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          </div>
+          <div className="form-control">
+              <label className="label"><span className="label-text">Filter per Supplier</span></label>
+              <select value={filterSupplier} onChange={(e) => setFilterSupplier(e.target.value)} className="select select-bordered w-full max-w-xs">
+                  <option value="">Semua Supplier</option>
+                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+          </div>
         </div>
       </div>
-
       <div className="divider">Daftar Barang Sesuai Filter</div>
       <div className="overflow-x-auto">
         <table className="table w-full">
-            <thead className='bg-gray-200'>
-                <tr>
-                    <th><input type="checkbox" className="checkbox print:hidden" onChange={(e) => setSelectedForShipment(filteredItems.reduce((acc, item) => ({...acc, [item.id]: e.target.checked}), {}))} /></th>
-                    <th>Nama Barang</th>
-                    <th>Jumlah Rusak</th>
-                    <th>Supplier</th>
-                </tr>
-            </thead>
+            <thead className='bg-gray-200'><tr><th><input type="checkbox" className="checkbox print:hidden" onChange={(e) => setSelectedForShipment(filteredItems.reduce((acc, item) => ({...acc, [item.id]: e.target.checked}), {}))} /></th><th>Nama Barang</th><th>Jumlah Rusak</th><th>Supplier</th></tr></thead>
             <tbody>
-                {loading ? (<tr><td colSpan="4" className="text-center"><span className="loading loading-dots"></span></td></tr>) 
-                 : filteredItems.length === 0 ? (<tr><td colSpan="4" className="text-center">Tidak ada data ditemukan.</td></tr>)
-                 : (filteredItems.map(item => ( <tr key={item.id}><th><label><input type="checkbox" checked={!!selectedForShipment[item.id]} onChange={() => handleSelectItem(item.id)} className="checkbox print:hidden" /></label></th><td>{item.name}</td><td>{formatToDPP(item.damagedStockInPcs, item.conversions)}</td><td>{item.supplierName}</td></tr> )))}
+                {loading ? (<tr><td colSpan="4" className="text-center"><span className="loading loading-dots"></span></td></tr>) : 
+                 filteredItems.length === 0 ? (<tr><td colSpan="4" className="text-center">Tidak ada stok rusak.</td></tr>) :
+                 (filteredItems.map(item => ( <tr key={item.id}><th><label><input type="checkbox" checked={!!selectedForShipment[item.id]} onChange={() => handleSelectItem(item.id)} className="checkbox print:hidden" /></label></th><td>{item.name}</td><td>{formatToDPP(item.damagedStockInPcs, item.conversions)}</td><td>{item.supplierName}</td></tr> )))}
             </tbody>
         </table>
       </div>
