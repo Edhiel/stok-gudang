@@ -5,55 +5,47 @@ function CameraBarcodeScanner({ onScan, onClose }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    // ID elemen tempat scanner akan dirender
     const scannerId = 'qr-reader-container';
     
-    // Inisialisasi library
+    // Inisialisasi scanner ditempatkan di dalam useEffect
+    // Ini memastikan elemen div #qr-reader-container sudah ada
     const html5QrCode = new Html5Qrcode(scannerId);
 
     const config = { 
       fps: 10, 
-      qrbox: { width: 250, height: 150 }, // Kotak scan persegi panjang, lebih cocok untuk barcode
+      qrbox: { width: 250, height: 150 },
     };
 
     const onScanSuccess = (decodedText, decodedResult) => {
         onScan(decodedText);
-        onClose(); // Otomatis tutup setelah berhasil
+        onClose();
     };
 
     const onScanFailure = (errorMsg) => {
-      // Abaikan error "tidak ditemukan"
+      // Abaikan
     };
     
-    // Fungsi untuk memulai scanner
-    const startScanner = async () => {
-      try {
-        await html5QrCode.start(
-          { facingMode: "environment" }, // Prioritaskan kamera belakang
-          config,
-          onScanSuccess,
-          onScanFailure
-        );
-      } catch (err) {
+    // Mulai scanner setelah komponen di-mount
+    html5QrCode.start(
+      { facingMode: "environment" },
+      config,
+      onScanSuccess,
+      onScanFailure
+    ).catch(err => {
         console.error("Gagal memulai scanner:", err);
-        setError("Kamera tidak ditemukan atau gagal dimulai. Pastikan izin sudah diberikan.");
-      }
-    };
-
-    startScanner();
+        setError("Kamera gagal dimulai. Pastikan izin sudah diberikan dan tidak ada aplikasi lain yang menggunakan kamera.");
+    });
 
     // Cleanup function saat komponen ditutup
     return () => {
-      // Pastikan scanner sudah berjalan sebelum mencoba menghentikannya
-      if (html5QrCode && html5QrCode.isScanning) {
-        html5QrCode.stop().then(() => {
-          console.log("Scanner dihentikan.");
-        }).catch(err => {
-          console.error("Gagal menghentikan scanner.", err);
+      // Cek apakah scanner sedang berjalan sebelum mencoba menghentikannya
+      if (html5QrCode.isScanning) {
+        html5QrCode.stop().catch(err => {
+          console.error("Gagal menghentikan scanner dengan benar.", err);
         });
       }
     };
-  }, [onScan, onClose]);
+  }, [onScan, onClose]); // dependensi ditambahkan agar onScan & onClose selalu up-to-date
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
@@ -61,7 +53,8 @@ function CameraBarcodeScanner({ onScan, onClose }) {
         <h3 className="text-center text-lg font-semibold mb-2">
           Arahkan Kamera ke Barcode
         </h3>
-        {/* Beri style agar ukuran kontainer jelas */}
+        
+        {/* Kontainer untuk scanner */}
         <div id="qr-reader-container" className="mb-2 border rounded-lg overflow-hidden" style={{ width: '100%' }}></div>
         
         {error && <p className="text-red-500 text-sm text-center mt-2">{error}</p>}
