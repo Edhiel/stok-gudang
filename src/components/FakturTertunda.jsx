@@ -1,17 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { ref, onValue, get, update, push, serverTimestamp, runTransaction } from 'firebase/database';
+import { ref, onValue, get, push, serverTimestamp } from 'firebase/database';
 import { db } from '../firebaseConfig';
 import CameraBarcodeScanner from './CameraBarcodeScanner';
-import toast from 'react-hot-toast'; // Impor toast
+import toast from 'react-hot-toast';
 
-function FakturTertunda({ userProfile, setPage }) {
-  // State untuk data header
+function FakturTertunda({ userProfile }) {
   const [salesName, setSalesName] = useState('');
   const [storeName, setStoreName] = useState('');
   const [driverName, setDriverName] = useState('');
   const [licensePlate, setLicensePlate] = useState('');
-
-  // State untuk item
   const [availableItems, setAvailableItems] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
@@ -19,7 +16,6 @@ function FakturTertunda({ userProfile, setPage }) {
   const [dosQty, setDosQty] = useState(0);
   const [packQty, setPackQty] = useState(0);
   const [pcsQty, setPcsQty] = useState(0);
-  
   const [transactionItems, setTransactionItems] = useState([]);
   const [showScanner, setShowScanner] = useState(false);
 
@@ -51,7 +47,7 @@ function FakturTertunda({ userProfile, setPage }) {
     setItemStock(snapshot.exists() ? snapshot.val() : 0);
   };
   
-  const handleAddItemToList = () => {
+  const handleAddItemToList = (isBonus = false) => {
     if (!selectedItem) { toast.error("Pilih barang dulu."); return; }
     const totalPcs = (Number(dosQty) * (selectedItem.conversions.Dos?.inPcs || 1)) + (Number(packQty) * (selectedItem.conversions.Pack?.inPcs || 1)) + (Number(pcsQty));
     if (totalPcs <= 0) { toast.error("Masukkan jumlah yang valid."); return; }
@@ -59,7 +55,11 @@ function FakturTertunda({ userProfile, setPage }) {
         toast.error(`Stok tidak cukup! Sisa stok ${selectedItem.name} hanya ${itemStock} Pcs.`);
         return;
     }
-    setTransactionItems([...transactionItems, { id: selectedItem.id, name: selectedItem.name, quantityInPcs: totalPcs, displayQty: `${dosQty}.${packQty}.${pcsQty}` }]);
+    const newItem = {
+      id: selectedItem.id, name: selectedItem.name, quantityInPcs: totalPcs,
+      displayQty: `${dosQty}.${packQty}.${pcsQty}`, isBonus: isBonus
+    };
+    setTransactionItems([...transactionItems, newItem]);
     setSelectedItem(null); setSearchTerm(''); setDosQty(0); setPackQty(0); setPcsQty(0);
   };
 
@@ -74,7 +74,6 @@ function FakturTertunda({ userProfile, setPage }) {
     }
 
     try {
-      // Tidak ada perubahan stok di sini, hanya mencatat pesanan
       const pendingInvoicesRef = ref(db, `depots/${userProfile.depotId}/pendingInvoices`);
       await push(pendingInvoicesRef, {
         status: 'Menunggu Faktur',
@@ -93,17 +92,18 @@ function FakturTertunda({ userProfile, setPage }) {
       console.error(err);
     }
   };
+  
+  const filteredItems = searchTerm.length > 0 
+    ? availableItems.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    : [];
 
   return (
     <>
-      {/* --- PERBAIKAN PROP SCANNER DI SINI --- */}
       {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
-      
       <div className="p-8">
         <div className="card bg-white shadow-lg w-full">
           <div className="card-body">
             <h2 className="card-title text-2xl">Buat Tanda Terima (Faktur Tertunda)</h2>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 p-4 border rounded-lg">
               <div className="form-control">
                 <label className="label"><span className="label-text font-bold">Nama Sales</span></label>
@@ -122,7 +122,6 @@ function FakturTertunda({ userProfile, setPage }) {
                 <input type="text" value={licensePlate} onChange={(e) => setLicensePlate(e.target.value)} className="input input-bordered" />
               </div>
             </div>
-
             <div className="divider">Tambah Barang ke Daftar</div>
             <div className="p-4 border rounded-lg bg-base-200">
               <div className="form-control dropdown">
@@ -131,9 +130,9 @@ function FakturTertunda({ userProfile, setPage }) {
                   <input type="text" placeholder="Cari dari master barang..." className="input input-bordered join-item w-full" value={searchTerm} onChange={(e) => {setSearchTerm(e.target.value); setSelectedItem(null);}}/>
                   <button type="button" onClick={() => setShowScanner(true)} className="btn btn-primary join-item">Scan</button>
                 </div>
-                {searchTerm.length > 0 && !selectedItem && (
+                {filteredItems.length > 0 && !selectedItem && (
                   <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">
-                    {availableItems.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase())).slice(0, 5).map(item => (
+                    {filteredItems.slice(0, 5).map(item => (
                       <li key={item.id}><a onClick={() => handleSelectItem(item)}>{item.name}</a></li>
                     ))}
                   </ul>
@@ -147,24 +146,32 @@ function FakturTertunda({ userProfile, setPage }) {
                         <div className="form-control"><label className="label-text">DOS</label><input type="number" value={dosQty} onChange={(e) => setDosQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div>
                         <div className="form-control"><label className="label-text">PACK</label><input type="number" value={packQty} onChange={(e) => setPackQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div>
                         <div className="form-control"><label className="label-text">PCS</label><input type="number" value={pcsQty} onChange={(e) => setPcsQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div>
-                        <button type="button" onClick={handleAddItemToList} className="btn btn-secondary">Tambah ke Daftar</button>
+                        <div className="flex gap-2">
+                            <button type="button" onClick={() => handleAddItemToList(false)} className="btn btn-secondary">Tambah</button>
+                            <button type="button" onClick={() => handleAddItemToList(true)} className="btn btn-accent">Bonus</button>
+                        </div>
                     </div>
                 </div>
               )}
             </div>
-
             <div className="divider">Barang dalam Tanda Terima Ini</div>
             <div className="overflow-x-auto">
               <table className="table w-full">
                 <thead><tr><th>Nama Barang</th><th>Jumlah Pesanan</th><th>Aksi</th></tr></thead>
                 <tbody>
                   {transactionItems.map((item, index) => (
-                    <tr key={index}><td>{item.name}</td><td>{item.displayQty}</td><td><button onClick={() => handleRemoveFromList(index)} className="btn btn-xs btn-error">Hapus</button></td></tr>
+                    <tr key={index}>
+                      <td>
+                        {item.name}
+                        {item.isBonus && <span className="badge badge-info badge-sm ml-2">Bonus</span>}
+                      </td>
+                      <td>{item.displayQty}</td>
+                      <td><button onClick={() => handleRemoveFromList(index)} className="btn btn-xs btn-error">Hapus</button></td>
+                    </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-
             <div className="form-control mt-6">
               <button type="button" onClick={handleSavePendingInvoice} className="btn btn-warning btn-lg" disabled={transactionItems.length === 0}>Simpan Tanda Terima</button>
             </div>
@@ -174,5 +181,4 @@ function FakturTertunda({ userProfile, setPage }) {
     </>
   );
 }
-
 export default FakturTertunda;

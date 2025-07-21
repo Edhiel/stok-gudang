@@ -67,6 +67,7 @@ function StokMasuk({ userProfile }) {
     if (!selectedItem) { toast.error("Pilih barang dulu."); return; }
     const totalPcs = (Number(dosQty) * (selectedItem.conversions.Dos?.inPcs || 1)) + (Number(packQty) * (selectedItem.conversions.Pack?.inPcs || 1)) + (Number(pcsQty));
     if (totalPcs <= 0) { toast.error("Masukkan jumlah yang valid."); return; }
+    
     const newItem = { 
       id: selectedItem.id, 
       name: selectedItem.name, 
@@ -74,6 +75,7 @@ function StokMasuk({ userProfile }) {
       displayQty: `${dosQty}.${packQty}.${pcsQty}`,
       isBonus: isBonus 
     };
+
     setTransactionItems([...transactionItems, newItem]);
     setSelectedItem(null); setSearchTerm(''); setDosQty(0); setPackQty(0); setPcsQty(0);
   };
@@ -103,7 +105,7 @@ function StokMasuk({ userProfile }) {
       await push(transactionsRef, {
         type: 'Stok Masuk', suratJalan, supplierId: selectedSupplier,
         supplierName: supplierData.name, driverName, licensePlate,
-        items: transactionItems, 
+        items: transactionItems,
         user: userProfile.fullName, timestamp: serverTimestamp()
       });
       toast.success("Transaksi stok masuk berhasil disimpan!");
@@ -133,15 +135,9 @@ function StokMasuk({ userProfile }) {
               </div>
               <div className="form-control">
                 <label className="label"><span className="label-text font-bold">Nama Vendor/Supplier</span></label>
-                <select 
-                  value={selectedSupplier} 
-                  onChange={(e) => setSelectedSupplier(e.target.value)} 
-                  className="select select-bordered"
-                >
+                <select value={selectedSupplier} onChange={(e) => setSelectedSupplier(e.target.value)} className="select select-bordered">
                     <option value="">Pilih Supplier</option>
-                    {suppliers.map(sup => (
-                        <option key={sup.id} value={sup.id}>{sup.name}</option>
-                    ))}
+                    {suppliers.map(sup => (<option key={sup.id} value={sup.id}>{sup.name}</option>))}
                 </select>
               </div>
               <div className="form-control">
@@ -153,7 +149,6 @@ function StokMasuk({ userProfile }) {
                 <input type="text" value={licensePlate} onChange={(e) => setLicensePlate(e.target.value)} className="input input-bordered" />
               </div>
             </div>
-
             <div className="divider">Detail Barang</div>
             <div className="p-4 border rounded-lg bg-base-200">
               <div className="form-control dropdown">
