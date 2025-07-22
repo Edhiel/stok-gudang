@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
-// Impor untuk Firebase
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { ref, get } from 'firebase/database';
 import { auth, db } from './firebaseConfig';
+import { Toaster } from 'react-hot-toast';
 
-// Impor semua komponen halaman Anda
 import Login from './components/Login';
 import Register from './components/Register';
 import Navbar from './components/Navbar';
@@ -27,6 +26,7 @@ import ProsesOrder from './components/ProsesOrder';
 import ProsesPengeluaranGudang from './components/ProsesPengeluaranGudang';
 import StockOpname from './components/StockOpname';
 import UserProfile from './components/UserProfile';
+import KantorPusat from './components/KantorPusat'; // <-- Impor baru
 
 function App() {
   const [userProfile, setUserProfile] = useState(null);
@@ -67,7 +67,6 @@ function App() {
       console.error("Gagal logout:", error);
     }
   };
-
   const renderMainContent = () => {
     if (!userProfile) return null;
 
@@ -81,14 +80,13 @@ function App() {
     }
 
     const isSuperAdmin = userProfile.role === 'Super Admin';
+    const isAdminPusat = userProfile.role === 'Admin Pusat';
     const isSales = userProfile.role === 'Sales Depo';
     const canDoGudangTransaction = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang', 'Staf Gudang'].includes(userProfile.role);
     const canAccessMasterData = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(userProfile.role);
-    const canViewLaporan = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(userProfile.role);
+    const canViewLaporan = ['Super Admin', 'Admin Pusat', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(userProfile.role);
     const canProcessOrder = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(userProfile.role);
 
-    // --- SWITCH INI YANG DIPERBAIKI TOTAL ---
-    // Setiap case sekarang dipisahkan untuk memanggil komponennya masing-masing
     switch (mainPage) {
       case 'buat-order':
         if (isSales || isSuperAdmin) return <BuatOrder userProfile={userProfile} setPage={setMainPage} />;
@@ -133,6 +131,10 @@ function App() {
         if (canViewLaporan) return <Laporan userProfile={userProfile} setPage={setMainPage} />;
         break;
 
+      case 'kantor-pusat':
+        if (isSuperAdmin || isAdminPusat) return <KantorPusat userProfile={userProfile} setPage={setMainPage} />;
+        break;
+
       case 'kelola-pengguna':
         if (isSuperAdmin) return <KelolaPengguna userProfile={userProfile} setPage={setMainPage} />;
         break;
@@ -153,20 +155,16 @@ function App() {
         return <Dashboard user={userProfile} setPage={setMainPage} />;
     }
     
-    // Jika tidak ada case yang cocok atau akses ditolak, kembali ke dashboard
     return <Dashboard user={userProfile} setPage={setMainPage} />;
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <span className="loading loading-spinner loading-lg"></span>
-      </div>
-    );
+    return ( <div className="min-h-screen flex items-center justify-center"><span className="loading loading-spinner loading-lg"></span></div> );
   }
 
   return (
     <div className="min-h-screen bg-base-200">
+      <Toaster />
       {userProfile ? (
         <>
           <Navbar user={userProfile} setPage={setMainPage} handleLogout={handleLogout} />
@@ -181,5 +179,4 @@ function App() {
     </div>
   );
 }
-
 export default App;

@@ -1,16 +1,12 @@
 import React from 'react';
 
 function Navbar({ user, setPage, handleLogout }) {
-  // --- Definisi Hak Akses yang Diperbarui (Harus sama dengan di App.jsx) ---
   const isSuperAdmin = user.role === 'Super Admin';
+  const isAdminPusat = user.role === 'Admin Pusat';
   const isSales = user.role === 'Sales Depo';
-  // Semua peran yang terkait dengan gudang
   const isGudangUser = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang', 'Staf Gudang'].includes(user.role);
-  // Peran yang boleh mengakses master data (tidak termasuk Staf Gudang)
   const canAccessMasterData = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(user.role);
-  // Peran yang boleh melihat laporan (tidak termasuk Staf Gudang)
-  const canViewLaporan = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(user.role);
-  // Peran yang boleh memproses orderan (tidak termasuk Staf Gudang)
+  const canViewLaporan = ['Super Admin', 'Admin Pusat', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(user.role);
   const canProcessOrder = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(user.role);
 
   return (
@@ -23,8 +19,11 @@ function Navbar({ user, setPage, handleLogout }) {
       <div className="navbar-center hidden lg:flex">
         <ul className="menu menu-horizontal px-1">
           <li><a onClick={() => setPage('dashboard')}>Dashboard</a></li>
+          
+          {(isSuperAdmin || isAdminPusat) && (
+            <li><a onClick={() => setPage('kantor-pusat')}>Kantor Pusat</a></li>
+          )}
 
-          {/* Menu Orderan */}
           {(isSales || canProcessOrder) && (
             <li tabIndex={0}><details><summary>Orderan</summary><ul className="p-2 bg-base-100 text-base-content w-56">
               {(isSales || isSuperAdmin) && <li><a onClick={() => setPage('buat-order')}>Buat Order Baru</a></li>}
@@ -32,7 +31,6 @@ function Navbar({ user, setPage, handleLogout }) {
             </ul></details></li>
           )}
 
-          {/* Menu Gudang */}
           {isGudangUser && (
             <li tabIndex={0}><details><summary>Gudang</summary><ul className="p-2 bg-base-100 text-base-content w-56">
               {canProcessOrder && <li><a onClick={() => setPage('pengeluaran-barang')}>Daftar Pengeluaran</a></li>}
@@ -47,13 +45,10 @@ function Navbar({ user, setPage, handleLogout }) {
             </ul></details></li>
           )}
           
-          {/* Menu Data Master */}
           {canAccessMasterData && ( <li tabIndex={0}><details><summary>Data Master</summary><ul className="p-2 bg-base-100 text-base-content w-56"><li><a onClick={() => setPage('kelola-master-barang')}>Master Barang</a></li><li><a onClick={() => setPage('kelola-supplier')}>Supplier</a></li><li><a onClick={() => setPage('kelola-kategori')}>Kategori</a></li></ul></details></li> )}
           
-          {/* Menu Administrasi */}
           {isSuperAdmin && ( <li tabIndex={0}><details><summary>Administrasi</summary><ul className="p-2 bg-base-100 text-base-content w-52"><li><a onClick={() => setPage('kelola-pengguna')}>Pengguna</a></li><li><a onClick={() => setPage('kelola-depo')}>Depo</a></li><li><a onClick={() => setPage('alokasi-supplier')}>Alokasi Supplier</a></li><li><a onClick={() => setPage('backup-restore')}>Backup & Restore</a></li></ul></details></li> )}
           
-          {/* Menu Laporan */}
           {canViewLaporan && <li><a onClick={() => setPage('laporan')}>Laporan</a></li>}
         </ul>
       </div>
