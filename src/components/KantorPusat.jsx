@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../firebaseConfig';
-import Papa from 'papaparse'; // Pastikan PapaParse diimpor
+import Papa from 'papaparse';
 
-// --- FUNGSI BANTUAN ---
 const formatToDPP = (totalPcs, conversions) => {
   if (!totalPcs || !conversions) return '0.0.0';
   const dosInPcs = conversions.Dos?.inPcs || (conversions.Pack?.inPcs || 1);
@@ -11,7 +10,6 @@ const formatToDPP = (totalPcs, conversions) => {
   return `${Math.floor(totalPcs / dosInPcs)}.${Math.floor((totalPcs % dosInPcs) / packInPcs)}.${totalPcs % packInPcs}`;
 };
 
-// --- KOMPONEN KECIL UNTUK TABEL STOK ---
 const LaporanStok = ({ stockData, loading }) => (
   <div className="overflow-x-auto">
     <table className="table table-zebra w-full">
@@ -32,7 +30,6 @@ const LaporanStok = ({ stockData, loading }) => (
   </div>
 );
 
-// --- KOMPONEN KECIL UNTUK TABEL TRANSAKSI ---
 const LaporanTransaksi = ({ transactions, loading, depots }) => (
     <div className="overflow-x-auto">
         <table className="table table-zebra w-full">
@@ -58,7 +55,6 @@ const LaporanTransaksi = ({ transactions, loading, depots }) => (
     </div>
 );
 
-// --- KOMPONEN KECIL UNTUK KONTROL HALAMAN (PAGINATION) ---
 const PaginationControls = ({ currentPage, totalPages, onPageChange }) => {
     if (totalPages <= 1) return null;
     return (
@@ -69,32 +65,24 @@ const PaginationControls = ({ currentPage, totalPages, onPageChange }) => {
         </div>
     );
 }
+
 function KantorPusat({ userProfile }) {
   const [activeTab, setActiveTab] = useState('stok');
   const [loading, setLoading] = useState(true);
-
-  // Data mentah dari Firebase
   const [allDepots, setAllDepots] = useState([]);
   const [masterItems, setMasterItems] = useState({});
   const [originalStockData, setOriginalStockData] = useState([]);
   const [originalTransactions, setOriginalTransactions] = useState([]);
-  
-  // State untuk data yang sudah diproses
   const [processedStock, setProcessedStock] = useState([]);
   const [processedTransactions, setProcessedTransactions] = useState([]);
-  
-  // State untuk filter & pencarian
   const [selectedDepot, setSelectedDepot] = useState('semua');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
-  
-  // State untuk pagination
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 25;
 
-  // Mengambil data awal (daftar depo & master barang)
   useEffect(() => {
     const depotsRef = ref(db, 'depots');
     onValue(depotsRef, (snapshot) => {
@@ -102,14 +90,12 @@ function KantorPusat({ userProfile }) {
       const depotList = Object.keys(data).map(key => ({ id: key, name: data[key].info.name }));
       setAllDepots(depotList);
     });
-
     const masterItemsRef = ref(db, 'master_items');
     onValue(masterItemsRef, (snapshot) => {
       setMasterItems(snapshot.val() || {});
     });
   }, []);
 
-  // Mengambil data stok & transaksi dari SEMUA depo
   useEffect(() => {
     setLoading(true);
     const depotsRef = ref(db, 'depots');
@@ -117,70 +103,49 @@ function KantorPusat({ userProfile }) {
       const allDepotData = snapshot.val() || {};
       const stockSummary = {};
       const allTransactions = [];
-
       Object.keys(allDepotData).forEach(depotId => {
         const stockItems = allDepotData[depotId].stock || {};
         const transItems = allDepotData[depotId].transactions || {};
-
         Object.keys(stockItems).forEach(itemId => {
-          if (!stockSummary[itemId]) {
-            stockSummary[itemId] = { total: 0, damaged: 0 };
-          }
+          if (!stockSummary[itemId]) stockSummary[itemId] = { total: 0, damaged: 0 };
           stockSummary[itemId].total += stockItems[itemId].totalStockInPcs || 0;
           stockSummary[itemId].damaged += stockItems[itemId].damagedStockInPcs || 0;
         });
-
         Object.keys(transItems).forEach(transId => {
             allTransactions.push({ id: transId, ...transItems[transId], depotId });
         });
       });
-
       const finalStockData = Object.keys(stockSummary).map(itemId => ({
         id: itemId, ...masterItems[itemId],
         totalStock: stockSummary[itemId].total,
         damagedStock: stockSummary[itemId].damaged,
       })).filter(item => item.name);
-      
       setOriginalStockData(finalStockData);
       setOriginalTransactions(allTransactions.sort((a,b) => b.timestamp - a.timestamp));
       setLoading(false);
     }, { onlyOnce: true });
   }, [masterItems]);
 
-
-  // useEffect untuk memfilter dan mencari data
   useEffect(() => {
-    // Proses untuk STOK
     let newProcessedStock = [...originalStockData];
-    // Filter stok per depo untuk tampilan (logika agregat sudah di atas)
-    if (selectedDepot !== 'semua') {
-      // Untuk menampilkan stok per depo, kita perlu mengambil data mentah lagi
-      // Untuk saat ini, filter depo hanya berfungsi di transaksi, stok tetap gabungan
-    }
     if (filterCategory) newProcessedStock = newProcessedStock.filter(item => item.category === filterCategory);
     if (searchTerm) newProcessedStock = newProcessedStock.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()));
     setProcessedStock(newProcessedStock);
-
-    // Proses untuk TRANSAKSI
     let newProcessedTrans = [...originalTransactions];
     if (selectedDepot !== 'semua') newProcessedTrans = newProcessedTrans.filter(t => t.depotId === selectedDepot);
     if (filterStartDate) { const start = new Date(filterStartDate).setHours(0,0,0,0); newProcessedTrans = newProcessedTrans.filter(t => t.timestamp >= start); }
     if (filterEndDate) { const end = new Date(filterEndDate).setHours(23,59,59,999); newProcessedTrans = newProcessedTrans.filter(t => t.timestamp <= end); }
     setProcessedTransactions(newProcessedTrans);
-
     setCurrentPage(1);
   }, [selectedDepot, filterCategory, searchTerm, filterStartDate, filterEndDate, originalStockData, originalTransactions]);
 
-  // Logika untuk pagination
   const totalStockPages = Math.ceil(processedStock.length / itemsPerPage);
   const totalTransactionPages = Math.ceil(processedTransactions.length / itemsPerPage);
-  
   const paginatedStock = useMemo(() => {
     const first = (currentPage - 1) * itemsPerPage;
     const last = first + itemsPerPage;
     return processedStock.slice(first, last);
   }, [currentPage, processedStock]);
-
   const paginatedTransactions = useMemo(() => {
     const first = (currentPage - 1) * itemsPerPage;
     const last = first + itemsPerPage;
@@ -188,35 +153,25 @@ function KantorPusat({ userProfile }) {
   }, [currentPage, processedTransactions]);
 
   const handlePrint = () => { window.print(); };
-
   const handleExportCsv = () => {
     let dataToExport = [];
     let filename = 'laporan_pusat.csv';
     const today = new Date().toISOString().split('T')[0];
     const depotName = selectedDepot === 'semua' ? 'SemuaDepo' : selectedDepot;
-
     if (activeTab === 'stok') {
         dataToExport = processedStock.map(item => ({
-            'ID Barang': item.id,
-            'Nama Barang': item.name, 
-            'Kategori': item.category, 
-            'Supplier': item.supplierName,
-            'Total Stok Baik (Pcs)': item.totalStock || 0,
-            'Total Stok Rusak (Pcs)': item.damagedStock || 0,
-            'Stok Baik (D.P.P)': formatToDPP(item.totalStock, item.conversions),
+            'ID Barang': item.id, 'Nama Barang': item.name, 'Kategori': item.category, 
+            'Supplier': item.supplierName, 'Total Stok Baik (Pcs)': item.totalStock || 0,
+            'Total Stok Rusak (Pcs)': item.damagedStock || 0, 'Stok Baik (D.P.P)': formatToDPP(item.totalStock, item.conversions),
         }));
         filename = `laporan_stok_gabungan_${depotName}_${today}.csv`;
     } else if (activeTab === 'transaksi') {
         dataToExport = processedTransactions.map(trans => ({
-            'Tanggal': new Date(trans.timestamp).toLocaleString('id-ID'),
-            'Depo': allDepots.find(d => d.id === trans.depotId)?.name || trans.depotId,
-            'Tipe': trans.type, 
-            'Oleh': trans.user,
-            'Detail Barang': trans.items.map(i => `${i.name} (${i.displayQty})`).join('; ')
+            'Tanggal': new Date(trans.timestamp).toLocaleString('id-ID'), 'Depo': allDepots.find(d => d.id === trans.depotId)?.name || trans.depotId,
+            'Tipe': trans.type, 'Oleh': trans.user, 'Detail Barang': trans.items.map(i => `${i.name} (${i.displayQty})`).join('; ')
         }));
         filename = `laporan_transaksi_gabungan_${depotName}_${today}.csv`;
     }
-
     if (dataToExport.length === 0) { alert("Tidak ada data untuk diekspor."); return; }
     const csv = Papa.unparse(dataToExport);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -230,13 +185,20 @@ function KantorPusat({ userProfile }) {
   };
   return (
     <div className="p-8">
-      <div className="hidden print:block mb-4 text-center">
-        <h1 className="text-2xl font-bold">Laporan Gabungan Kantor Pusat</h1>
-        <p>Depo: {allDepots.find(d => d.id === selectedDepot)?.name || 'Semua Depo'}</p>
-        <p>Laporan {activeTab === 'stok' ? 'Stok Barang' : 'Transaksi'}</p>
-        <p>Dicetak pada: {new Date().toLocaleDateString('id-ID')}</p>
+      <div className="hidden print:block mb-4">
+        <div className="flex items-center justify-center mb-4">
+          <img src="/logo_bulet_mhm.gif" alt="Logo Perusahaan" className="h-16 w-16 mr-4" />
+          <div>
+            <h1 className="text-2xl font-bold">PT. Mahameru Mitra Makmur</h1>
+            <p>Laporan Gabungan Kantor Pusat</p>
+          </div>
+        </div>
+        <div className="text-center">
+            <p>Depo: {allDepots.find(d => d.id === selectedDepot)?.name || 'Semua Depo'}</p>
+            <p className="font-semibold text-lg">Laporan {activeTab === 'stok' ? 'Stok Barang' : 'Transaksi'}</p>
+            <p className="text-sm">Dicetak pada: {new Date().toLocaleDateString('id-ID')}</p>
+        </div>
       </div>
-
       <div className="flex justify-between items-center mb-6 print:hidden">
         <h1 className="text-3xl font-bold">Dasbor Kantor Pusat</h1>
         <div className="flex gap-2">
@@ -244,12 +206,10 @@ function KantorPusat({ userProfile }) {
             <button className="btn btn-sm btn-success" onClick={handleExportCsv}>Ekspor ke CSV</button>
         </div>
       </div>
-      
       <div role="tablist" className="tabs tabs-lifted print:hidden">
         <a role="tab" className={`tab ${activeTab === 'stok' ? 'tab-active' : ''}`} onClick={() => setActiveTab('stok')}>Laporan Stok Gabungan</a>
         <a role="tab" className={`tab ${activeTab === 'transaksi' ? 'tab-active' : ''}`} onClick={() => setActiveTab('transaksi')}>Laporan Transaksi Gabungan</a>
       </div>
-
       <div className="card bg-white shadow-lg w-full rounded-b-lg rounded-tr-lg">
         <div className="card-body">
           <div className="p-4 bg-base-200 rounded-lg mb-4 print:hidden">
@@ -261,43 +221,25 @@ function KantorPusat({ userProfile }) {
                   {allDepots.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </div>
-
               {activeTab === 'stok' ? (
                 <>
-                  <div className="form-control">
-                    <label className="label-text">Cari Nama Barang</label>
-                    <input type="text" placeholder="Ketik untuk mencari..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="input input-bordered" />
-                  </div>
-                  <div className="form-control">
-                    <label className="label-text">Filter Kategori</label>
-                    <select className="select select-bordered" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
-                      <option value="">Semua Kategori</option>
-                      {[...new Set(masterItems ? Object.values(masterItems).map(i => i.category) : [])].sort().map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
+                  <div className="form-control"><label className="label-text">Cari Nama Barang</label><input type="text" placeholder="Ketik untuk mencari..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="input input-bordered" /></div>
+                  <div className="form-control"><label className="label-text">Filter Kategori</label><select className="select select-bordered" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}><option value="">Semua Kategori</option>{[...new Set(masterItems ? Object.values(masterItems).map(i => i.category) : [])].sort().map(c => <option key={c} value={c}>{c}</option>)}</select></div>
                 </>
               ) : (
                 <>
-                  <div className="form-control">
-                    <label className="label-text">Dari Tanggal</label>
-                    <input type="date" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} className="input input-bordered" />
-                  </div>
-                  <div className="form-control">
-                    <label className="label-text">Sampai Tanggal</label>
-                    <input type="date" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} className="input input-bordered" />
-                  </div>
+                  <div className="form-control"><label className="label-text">Dari Tanggal</label><input type="date" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} className="input input-bordered" /></div>
+                  <div className="form-control"><label className="label-text">Sampai Tanggal</label><input type="date" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} className="input input-bordered" /></div>
                 </>
               )}
             </div>
           </div>
-
           {activeTab === 'stok' && (
             <>
               <LaporanStok stockData={paginatedStock} loading={loading} />
               <PaginationControls currentPage={currentPage} totalPages={totalStockPages} onPageChange={setCurrentPage} />
             </>
           )}
-
           {activeTab === 'transaksi' && (
             <>
               <LaporanTransaksi transactions={paginatedTransactions} loading={loading} depots={allDepots} />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, 'useState, useEffect } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { ref, get } from 'firebase/database';
 import { auth, db } from './firebaseConfig';
@@ -26,7 +26,8 @@ import ProsesOrder from './components/ProsesOrder';
 import ProsesPengeluaranGudang from './components/ProsesPengeluaranGudang';
 import StockOpname from './components/StockOpname';
 import UserProfile from './components/UserProfile';
-import KantorPusat from './components/KantorPusat'; // <-- Impor baru
+import KantorPusat from './components/KantorPusat';
+import TransferStok from './components/TransferStok'; // <-- Impor baru
 
 function App() {
   const [userProfile, setUserProfile] = useState(null);
@@ -109,6 +110,9 @@ function App() {
         break;
       case 'pengeluaran-barang':
         if (canDoGudangTransaction) return <ProsesPengeluaranGudang userProfile={userProfile} setPage={setMainPage} />;
+        break;
+      case 'transfer-stok': // <-- Case baru
+        if (canAccessMasterData) return <TransferStok userProfile={userProfile} />;
         break;
 
       case 'faktur-tertunda':

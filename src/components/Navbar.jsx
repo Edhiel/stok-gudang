@@ -39,6 +39,8 @@ function Navbar({ user, setPage, handleLogout }) {
               <li><a onClick={() => setPage('stok-keluar')}>Stok Keluar</a></li>
               <li><a onClick={() => setPage('manajemen-retur')}>Manajemen Retur</a></li>
               <li><a onClick={() => setPage('stock-opname')}>Stock Opname</a></li>
+              <li className="menu-title"><span>Antar Depo</span></li>
+              {canAccessMasterData && <li><a onClick={() => setPage('transfer-stok')}>Transfer Stok</a></li>}
               <li className="menu-title"><span>Faktur</span></li>
               {canProcessOrder && <li><a onClick={() => setPage('faktur-tertunda')}>Buat Faktur Tertunda</a></li>}
               {canProcessOrder && <li><a onClick={() => setPage('proses-faktur-tertunda')}>Proses Faktur Tertunda</a></li>}
