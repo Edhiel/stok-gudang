@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../firebaseConfig';
+import Papa from 'papaparse'; // Pastikan PapaParse diimpor
 
 // --- FUNGSI BANTUAN ---
 const formatToDPP = (totalPcs, conversions) => {
@@ -31,7 +32,7 @@ const LaporanStok = ({ stockData, loading }) => (
   </div>
 );
 
-// --- KOMPONEN KECIL BARU UNTUK TABEL TRANSAKSI ---
+// --- KOMPONEN KECIL UNTUK TABEL TRANSAKSI ---
 const LaporanTransaksi = ({ transactions, loading, depots }) => (
     <div className="overflow-x-auto">
         <table className="table table-zebra w-full">
@@ -78,16 +79,16 @@ function KantorPusat({ userProfile }) {
   const [originalStockData, setOriginalStockData] = useState([]);
   const [originalTransactions, setOriginalTransactions] = useState([]);
   
+  // State untuk data yang sudah diproses
+  const [processedStock, setProcessedStock] = useState([]);
+  const [processedTransactions, setProcessedTransactions] = useState([]);
+  
   // State untuk filter & pencarian
   const [selectedDepot, setSelectedDepot] = useState('semua');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
-  
-  // State untuk data yang sudah diproses
-  const [processedStock, setProcessedStock] = useState([]);
-  const [processedTransactions, setProcessedTransactions] = useState([]);
   
   // State untuk pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -151,9 +152,10 @@ function KantorPusat({ userProfile }) {
   useEffect(() => {
     // Proses untuk STOK
     let newProcessedStock = [...originalStockData];
+    // Filter stok per depo untuk tampilan (logika agregat sudah di atas)
     if (selectedDepot !== 'semua') {
-      // (Logika filter stok per depo perlu data stok mentah per depo)
-      // Untuk saat ini, filter depo hanya berlaku untuk transaksi
+      // Untuk menampilkan stok per depo, kita perlu mengambil data mentah lagi
+      // Untuk saat ini, filter depo hanya berfungsi di transaksi, stok tetap gabungan
     }
     if (filterCategory) newProcessedStock = newProcessedStock.filter(item => item.category === filterCategory);
     if (searchTerm) newProcessedStock = newProcessedStock.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -166,7 +168,7 @@ function KantorPusat({ userProfile }) {
     if (filterEndDate) { const end = new Date(filterEndDate).setHours(23,59,59,999); newProcessedTrans = newProcessedTrans.filter(t => t.timestamp <= end); }
     setProcessedTransactions(newProcessedTrans);
 
-    setCurrentPage(1); // Kembali ke halaman 1 setiap filter berubah
+    setCurrentPage(1);
   }, [selectedDepot, filterCategory, searchTerm, filterStartDate, filterEndDate, originalStockData, originalTransactions]);
 
   // Logika untuk pagination
@@ -184,19 +186,73 @@ function KantorPusat({ userProfile }) {
     const last = first + itemsPerPage;
     return processedTransactions.slice(first, last);
   }, [currentPage, processedTransactions]);
+
+  const handlePrint = () => { window.print(); };
+
+  const handleExportCsv = () => {
+    let dataToExport = [];
+    let filename = 'laporan_pusat.csv';
+    const today = new Date().toISOString().split('T')[0];
+    const depotName = selectedDepot === 'semua' ? 'SemuaDepo' : selectedDepot;
+
+    if (activeTab === 'stok') {
+        dataToExport = processedStock.map(item => ({
+            'ID Barang': item.id,
+            'Nama Barang': item.name, 
+            'Kategori': item.category, 
+            'Supplier': item.supplierName,
+            'Total Stok Baik (Pcs)': item.totalStock || 0,
+            'Total Stok Rusak (Pcs)': item.damagedStock || 0,
+            'Stok Baik (D.P.P)': formatToDPP(item.totalStock, item.conversions),
+        }));
+        filename = `laporan_stok_gabungan_${depotName}_${today}.csv`;
+    } else if (activeTab === 'transaksi') {
+        dataToExport = processedTransactions.map(trans => ({
+            'Tanggal': new Date(trans.timestamp).toLocaleString('id-ID'),
+            'Depo': allDepots.find(d => d.id === trans.depotId)?.name || trans.depotId,
+            'Tipe': trans.type, 
+            'Oleh': trans.user,
+            'Detail Barang': trans.items.map(i => `${i.name} (${i.displayQty})`).join('; ')
+        }));
+        filename = `laporan_transaksi_gabungan_${depotName}_${today}.csv`;
+    }
+
+    if (dataToExport.length === 0) { alert("Tidak ada data untuk diekspor."); return; }
+    const csv = Papa.unparse(dataToExport);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
   return (
     <div className="p-8">
-      <h1 className="text-3xl font-bold mb-6">Dasbor Kantor Pusat</h1>
+      <div className="hidden print:block mb-4 text-center">
+        <h1 className="text-2xl font-bold">Laporan Gabungan Kantor Pusat</h1>
+        <p>Depo: {allDepots.find(d => d.id === selectedDepot)?.name || 'Semua Depo'}</p>
+        <p>Laporan {activeTab === 'stok' ? 'Stok Barang' : 'Transaksi'}</p>
+        <p>Dicetak pada: {new Date().toLocaleDateString('id-ID')}</p>
+      </div>
+
+      <div className="flex justify-between items-center mb-6 print:hidden">
+        <h1 className="text-3xl font-bold">Dasbor Kantor Pusat</h1>
+        <div className="flex gap-2">
+            <button className="btn btn-sm btn-info" onClick={handlePrint}>Cetak / PDF</button>
+            <button className="btn btn-sm btn-success" onClick={handleExportCsv}>Ekspor ke CSV</button>
+        </div>
+      </div>
       
-      <div role="tablist" className="tabs tabs-lifted">
+      <div role="tablist" className="tabs tabs-lifted print:hidden">
         <a role="tab" className={`tab ${activeTab === 'stok' ? 'tab-active' : ''}`} onClick={() => setActiveTab('stok')}>Laporan Stok Gabungan</a>
         <a role="tab" className={`tab ${activeTab === 'transaksi' ? 'tab-active' : ''}`} onClick={() => setActiveTab('transaksi')}>Laporan Transaksi Gabungan</a>
       </div>
 
       <div className="card bg-white shadow-lg w-full rounded-b-lg rounded-tr-lg">
         <div className="card-body">
-          {/* Panel Filter */}
-          <div className="p-4 bg-base-200 rounded-lg mb-4">
+          <div className="p-4 bg-base-200 rounded-lg mb-4 print:hidden">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="form-control">
                 <label className="label-text">Filter per Depo</label>
