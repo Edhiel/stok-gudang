@@ -1,4 +1,4 @@
-Import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ref, onValue, get, update, push, serverTimestamp, runTransaction } from 'firebase/database';
 import { db } from '../firebaseConfig';
 import CameraBarcodeScanner from './CameraBarcodeScanner';
