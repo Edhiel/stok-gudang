@@ -191,7 +191,9 @@ function TransferStok({ userProfile }) {
     ? availableItems.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
     : [];
 
-  const destinationDepots = allDepots.filter(depot => depot.id.toUpperCase() !== userProfile.depotId.toUpperCase());
+  const destinationDepots = userProfile?.depotId
+  ? allDepots.filter(depot => depot.id.toUpperCase() !== userProfile.depotId.toUpperCase())
+  : [];
   if (loading) {
     return (
       <div className="p-8 text-center">
