@@ -33,15 +33,17 @@ function TransferStok({ userProfile }) {
   const [outgoingTransfers, setOutgoingTransfers] = useState([]);
   const [incomingTransfers, setIncomingTransfers] = useState([]);
 
-
   useEffect(() => {
     if (!userProfile || !userProfile.depotId) return;
 
-    // Ambil daftar semua depo (untuk dropdown & nama)
+    // Ambil daftar semua depo
     const depotsRef = ref(db, 'depots');
     onValue(depotsRef, (snapshot) => {
       const data = snapshot.val() || {};
-      const depotList = Object.keys(data).map(key => ({ id: key, name: data[key].info.name }));
+      const depotList = Object.keys(data).map(key => ({ 
+          id: key, 
+          name: data[key].info.name 
+      }));
       setAllDepots(depotList);
     });
 
@@ -183,53 +185,38 @@ function TransferStok({ userProfile }) {
   const filteredItems = searchTerm.length > 0 
     ? availableItems.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
     : [];
-    return (
+
+  // Filter daftar depo untuk dropdown agar tidak menampilkan depo sendiri
+  const destinationDepots = allDepots.filter(depot => depot.id.toUpperCase() !== userProfile.depotId.toUpperCase());
+  return (
     <div className="p-8">
       {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
       <h1 className="text-3xl font-bold mb-6">Transfer Stok Antar Depo</h1>
       
       <div role="tablist" className="tabs tabs-lifted">
-        <a role="tab" className={`tab ${activeTab === 'buat' ? 'tab-active' : ''}`} onClick={() => setActiveTab('buat')}>
-          Buat Transfer Baru
-        </a>
-        <a role="tab" className={`tab ${activeTab === 'keluar' ? 'tab-active' : ''}`} onClick={() => setActiveTab('keluar')}>
-          Pengiriman Keluar
-        </a>
-        <a role="tab" className={`tab ${activeTab === 'masuk' ? 'tab-active' : ''}`} onClick={() => setActiveTab('masuk')}>
-          Penerimaan Masuk
-        </a>
+        <a role="tab" className={`tab ${activeTab === 'buat' ? 'tab-active' : ''}`} onClick={() => setActiveTab('buat')}>Buat Transfer Baru</a>
+        <a role="tab" className={`tab ${activeTab === 'keluar' ? 'tab-active' : ''}`} onClick={() => setActiveTab('keluar')}>Pengiriman Keluar</a>
+        <a role="tab" className={`tab ${activeTab === 'masuk' ? 'tab-active' : ''}`} onClick={() => setActiveTab('masuk')}>Penerimaan Masuk</a>
       </div>
 
       <div className="bg-white p-6 rounded-b-lg rounded-tr-lg shadow-lg min-h-96">
         {activeTab === 'buat' && (
           <>
             <div className="hidden print:block p-4">
-                <div className="flex items-center justify-center mb-4 border-b-2 border-black pb-2">
-                <img src="/logo_bulet_mhm.gif" alt="Logo Perusahaan" className="h-20 w-20 mr-4" />
-                <div><h1 className="text-2xl font-bold">PT. Mahameru Mitra Makmur</h1><p className="text-center">Depo Asal: {userProfile.depotId}</p></div>
-                </div>
+                <div className="flex items-center justify-center mb-4 border-b-2 border-black pb-2"><img src="/logo_bulet_mhm.gif" alt="Logo Perusahaan" className="h-20 w-20 mr-4" /><div><h1 className="text-2xl font-bold">PT. Mahameru Mitra Makmur</h1><p className="text-center">Depo Asal: {userProfile.depotId}</p></div></div>
                 <h2 className="text-xl font-semibold mt-4 text-center">SURAT JALAN TRANSFER</h2>
                 <div className="flex justify-between text-sm my-4">
                 <div><p><strong>No. Surat Jalan:</strong> {suratJalan}</p><p><strong>Depo Tujuan:</strong> {allDepots.find(d => d.id === destinationDepot)?.name || destinationDepot}</p></div>
                 <div><p><strong>Tanggal:</strong> {new Date().toLocaleDateString('id-ID')}</p></div>
                 </div>
-                <table className="table w-full table-compact">
-                <thead><tr><th>No.</th><th>Nama Barang</th><th>Jumlah</th></tr></thead>
-                <tbody>{transferItems.map((item, index) => (<tr key={index}><td>{index + 1}</td><td>{item.name}</td><td>{item.displayQty}</td></tr>))}</tbody>
-                </table>
-                <div className="flex justify-around mt-16 text-center text-sm">
-                <div><p className="mb-16">(______________________)</p><p>Kepala Depo</p></div>
-                <div><p className="mb-16">(______________________)</p><p>Admin</p></div>
-                <div><p className="mb-16">(______________________)</p><p>Kepala Gudang</p></div>
-                </div>
+                <table className="table w-full table-compact"><thead><tr><th>No.</th><th>Nama Barang</th><th>Jumlah</th></tr></thead><tbody>{transferItems.map((item, index) => (<tr key={index}><td>{index + 1}</td><td>{item.name}</td><td>{item.displayQty}</td></tr>))}</tbody></table>
+                <div className="flex justify-around mt-16 text-center text-sm"><div><p className="mb-16">(______________________)</p><p>Kepala Depo</p></div><div><p className="mb-16">(______________________)</p><p>Admin</p></div><div><p className="mb-16">(______________________)</p><p>Kepala Gudang</p></div></div>
             </div>
             <div className="print:hidden">
-              <div className="flex justify-end mb-4">
-                  <button className="btn btn-info" onClick={handlePrint} disabled={transferItems.length === 0}>Cetak Surat Jalan</button>
-              </div>
+              <div className="flex justify-end mb-4"><button className="btn btn-info" onClick={handlePrint} disabled={transferItems.length === 0}>Cetak Surat Jalan</button></div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 p-4 border rounded-lg">
                   <div className="form-control"><label className="label"><span className="label-text font-bold">No. Surat Jalan</span></label><input type="text" value={suratJalan} onChange={(e) => setSuratJalan(e.target.value)} className="input input-bordered" /></div>
-                  <div className="form-control"><label className="label"><span className="label-text font-bold">Depo Tujuan</span></label><select value={destinationDepot} onChange={(e) => setDestinationDepot(e.target.value)} className="select select-bordered"><option value="">Pilih Depo Tujuan</option>{allDepots.map(depot => <option key={depot.id} value={depot.id}>{depot.name}</option>)}</select></div>
+                  <div className="form-control"><label className="label"><span className="label-text font-bold">Depo Tujuan</span></label><select value={destinationDepot} onChange={(e) => setDestinationDepot(e.target.value)} className="select select-bordered"><option value="">Pilih Depo Tujuan</option>{destinationDepots.map(depot => <option key={depot.id} value={depot.id}>{depot.name}</option>)}</select></div>
               </div>
               <div className="divider">Detail Barang</div>
               <div className="p-4 border rounded-lg bg-base-200">
@@ -250,17 +237,13 @@ function TransferStok({ userProfile }) {
             <h3 className="text-xl font-semibold mb-4">Daftar Pengiriman Keluar</h3>
             <div className="overflow-x-auto">
                 <table className="table table-zebra w-full">
-                    <thead className="bg-gray-200">
-                        <tr><th>Tanggal</th><th>No. Surat Jalan</th><th>Tujuan</th><th>Status</th><th>Detail</th></tr>
-                    </thead>
+                    <thead className="bg-gray-200"><tr><th>Tanggal</th><th>No. Surat Jalan</th><th>Tujuan</th><th>Status</th><th>Detail</th></tr></thead>
                     <tbody>
                         {loading ? <tr><td colSpan="5" className="text-center"><span className="loading loading-dots"></span></td></tr>
                         : outgoingTransfers.length === 0 ? <tr><td colSpan="5" className="text-center">Belum ada pengiriman keluar.</td></tr>
                         : outgoingTransfers.map(t => (
                             <tr key={t.id}>
-                                <td>{new Date(t.createdAt).toLocaleDateString('id-ID')}</td>
-                                <td>{t.suratJalan}</td>
-                                <td>{t.toDepotName}</td>
+                                <td>{new Date(t.createdAt).toLocaleDateString('id-ID')}</td><td>{t.suratJalan}</td><td>{t.toDepotName}</td>
                                 <td><span className={`badge ${t.status === 'Diterima' ? 'badge-success' : 'badge-warning'}`}>{t.status}</span></td>
                                 <td><button className="btn btn-xs btn-info">Lihat</button></td>
                             </tr>
@@ -276,17 +259,13 @@ function TransferStok({ userProfile }) {
             <h3 className="text-xl font-semibold mb-4">Daftar Penerimaan Masuk</h3>
             <div className="overflow-x-auto">
                 <table className="table table-zebra w-full">
-                    <thead className="bg-gray-200">
-                        <tr><th>Tanggal Kirim</th><th>No. Surat Jalan</th><th>Dari Depo</th><th>Status</th><th>Aksi</th></tr>
-                    </thead>
+                    <thead className="bg-gray-200"><tr><th>Tanggal Kirim</th><th>No. Surat Jalan</th><th>Dari Depo</th><th>Status</th><th>Aksi</th></tr></thead>
                     <tbody>
                         {loading ? <tr><td colSpan="5" className="text-center"><span className="loading loading-dots"></span></td></tr>
                         : incomingTransfers.length === 0 ? <tr><td colSpan="5" className="text-center">Belum ada penerimaan masuk.</td></tr>
                         : incomingTransfers.map(t => (
                             <tr key={t.id}>
-                                <td>{new Date(t.createdAt).toLocaleDateString('id-ID')}</td>
-                                <td>{t.suratJalan}</td>
-                                <td>{t.fromDepotId}</td>
+                                <td>{new Date(t.createdAt).toLocaleDateString('id-ID')}</td><td>{t.suratJalan}</td><td>{allDepots.find(d => d.id === t.fromDepotId)?.name || t.fromDepotId}</td>
                                 <td><span className={`badge ${t.status === 'Diterima' ? 'badge-success' : 'badge-warning'}`}>{t.status}</span></td>
                                 <td>
                                     {t.status === 'Dikirim' && (
