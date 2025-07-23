@@ -11,9 +11,12 @@ const formatToDPP = (totalPcs, conversions) => {
   return `${Math.floor(totalPcs / dosInPcs)}.${Math.floor((totalPcs % dosInPcs) / packInPcs)}.${totalPcs % packInPcs}`;
 };
 
-// --- KOMPONEN UNTUK TAB 1: BUAT TRANSFER ---
-const BuatTransferTab = ({ userProfile, allDepots }) => {
+function TransferStok({ userProfile }) {
+  const [activeTab, setActiveTab] = useState('buat');
   const [loading, setLoading] = useState(true);
+
+  // State untuk Tab 1: Buat Transfer
+  const [allDepots, setAllDepots] = useState([]);
   const [availableItems, setAvailableItems] = useState([]);
   const [suratJalan, setSuratJalan] = useState('');
   const [destinationDepot, setDestinationDepot] = useState('');
@@ -25,10 +28,24 @@ const BuatTransferTab = ({ userProfile, allDepots }) => {
   const [pcsQty, setPcsQty] = useState(0);
   const [transferItems, setTransferItems] = useState([]);
   const [showScanner, setShowScanner] = useState(false);
+  
+  // State untuk Tab 2 & 3
+  const [outgoingTransfers, setOutgoingTransfers] = useState([]);
+  const [incomingTransfers, setIncomingTransfers] = useState([]);
+
 
   useEffect(() => {
     if (!userProfile || !userProfile.depotId) return;
-    
+
+    // Ambil daftar semua depo (untuk dropdown & nama)
+    const depotsRef = ref(db, 'depots');
+    onValue(depotsRef, (snapshot) => {
+      const data = snapshot.val() || {};
+      const depotList = Object.keys(data).map(key => ({ id: key, name: data[key].info.name }));
+      setAllDepots(depotList);
+    });
+
+    // Ambil daftar barang yang punya stok di depo saat ini (untuk Tab 1)
     const masterItemsRef = ref(db, 'master_items');
     get(masterItemsRef).then((masterSnapshot) => {
       const masterItems = masterSnapshot.val() || {};
@@ -42,6 +59,23 @@ const BuatTransferTab = ({ userProfile, allDepots }) => {
         setLoading(false);
       });
     });
+
+    // Ambil data Pengiriman Keluar (untuk Tab 2)
+    const outgoingQuery = query(ref(db, 'stock_transfers'), orderByChild('fromDepotId'), equalTo(userProfile.depotId));
+    onValue(outgoingQuery, (snapshot) => {
+        const data = snapshot.val() || {};
+        const transferList = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+        setOutgoingTransfers(transferList.sort((a,b) => b.createdAt - a.createdAt));
+    });
+
+    // Ambil data Penerimaan Masuk (untuk Tab 3)
+    const incomingQuery = query(ref(db, 'stock_transfers'), orderByChild('toDepotId'), equalTo(userProfile.depotId));
+    onValue(incomingQuery, (snapshot) => {
+        const data = snapshot.val() || {};
+        const transferList = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+        setIncomingTransfers(transferList.sort((a,b) => b.createdAt - a.createdAt));
+    });
+
   }, [userProfile]);
 
   const handleBarcodeDetected = (scannedBarcode) => {
@@ -92,10 +126,11 @@ const BuatTransferTab = ({ userProfile, allDepots }) => {
         });
       }
       const transfersRef = ref(db, 'stock_transfers');
+      const depotData = allDepots.find(d => d.id === destinationDepot);
       await push(transfersRef, {
         suratJalan, fromDepotId: userProfile.depotId,
         toDepotId: destinationDepot,
-        toDepotName: allDepots.find(d => d.id === destinationDepot)?.name || destinationDepot,
+        toDepotName: depotData ? depotData.name : destinationDepot,
         items: transferItems, status: 'Dikirim',
         createdBy: userProfile.fullName, createdAt: serverTimestamp()
       });
@@ -114,72 +149,104 @@ const BuatTransferTab = ({ userProfile, allDepots }) => {
     }
     window.print();
   };
+  
+  const handleConfirmReceipt = async (transfer) => {
+    if (!window.confirm(`Konfirmasi penerimaan barang dari ${transfer.fromDepotId} dengan No. SJ ${transfer.suratJalan}? Stok akan diperbarui.`)) return;
+    try {
+        const updates = {};
+        updates[`/stock_transfers/${transfer.id}/status`] = 'Diterima';
+        updates[`/stock_transfers/${transfer.id}/receivedAt`] = serverTimestamp();
+        updates[`/stock_transfers/${transfer.id}/receivedBy`] = userProfile.fullName;
+        for (const item of transfer.items) {
+            const toStockRef = ref(db, `depots/${userProfile.depotId}/stock/${item.id}`);
+            await runTransaction(toStockRef, (currentStock) => {
+                if (!currentStock) return { totalStockInPcs: item.quantityInPcs, damagedStockInPcs: 0, inTransitStock: 0 };
+                currentStock.totalStockInPcs = (currentStock.totalStockInPcs || 0) + item.quantityInPcs;
+                return currentStock;
+            });
+            const fromStockRef = ref(db, `depots/${transfer.fromDepotId}/stock/${item.id}`);
+            await runTransaction(fromStockRef, (currentStock) => {
+                if (currentStock) {
+                    currentStock.inTransitStock = (currentStock.inTransitStock || 0) - item.quantityInPcs;
+                }
+                return currentStock;
+            });
+        }
+        await update(ref(db), updates);
+        toast.success("Penerimaan barang berhasil dikonfirmasi.");
+    } catch (err) {
+        toast.error("Gagal mengonfirmasi penerimaan.");
+        console.error(err);
+    }
+  };
 
   const filteredItems = searchTerm.length > 0 
     ? availableItems.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
     : [];
-
-  return (
-    <>
-      {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
-        <div className="hidden print:block p-4">
-            <div className="flex items-center justify-center mb-4 border-b-2 border-black pb-2">
-            <img src="/logo_bulet_mhm.gif" alt="Logo Perusahaan" className="h-20 w-20 mr-4" />
-            <div><h1 className="text-2xl font-bold">PT. Mahameru Mitra Makmur</h1><p className="text-center">Depo Asal: {userProfile.depotId}</p></div>
-            </div>
-            <h2 className="text-xl font-semibold mt-4 text-center">SURAT JALAN TRANSFER</h2>
-            <div className="flex justify-between text-sm my-4">
-            <div><p><strong>No. Surat Jalan:</strong> {suratJalan}</p><p><strong>Depo Tujuan:</strong> {allDepots.find(d => d.id === destinationDepot)?.name || destinationDepot}</p></div>
-            <div><p><strong>Tanggal:</strong> {new Date().toLocaleDateString('id-ID')}</p></div>
-            </div>
-            <table className="table w-full table-compact">
-            <thead><tr><th>No.</th><th>Nama Barang</th><th>Jumlah</th></tr></thead>
-            <tbody>{transferItems.map((item, index) => (<tr key={index}><td>{index + 1}</td><td>{item.name}</td><td>{item.displayQty}</td></tr>))}</tbody>
-            </table>
-            <div className="flex justify-around mt-16 text-center text-sm">
-            <div><p className="mb-16">(______________________)</p><p>Kepala Depo</p></div>
-            <div><p className="mb-16">(______________________)</p><p>Admin</p></div>
-            <div><p className="mb-16">(______________________)</p><p>Kepala Gudang</p></div>
-            </div>
-        </div>
-      <div className="p-4 print:hidden">
-        <div className="flex justify-end mb-4">
-            <button className="btn btn-info" onClick={handlePrint} disabled={transferItems.length === 0}>Cetak Surat Jalan</button>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 p-4 border rounded-lg">
-            <div className="form-control"><label className="label"><span className="label-text font-bold">No. Surat Jalan</span></label><input type="text" value={suratJalan} onChange={(e) => setSuratJalan(e.target.value)} className="input input-bordered" /></div>
-            <div className="form-control"><label className="label"><span className="label-text font-bold">Depo Tujuan</span></label><select value={destinationDepot} onChange={(e) => setDestinationDepot(e.target.value)} className="select select-bordered"><option value="">Pilih Depo Tujuan</option>{allDepots.map(depot => <option key={depot.id} value={depot.id}>{depot.name}</option>)}</select></div>
-        </div>
-        <div className="divider">Detail Barang</div>
-        <div className="p-4 border rounded-lg bg-base-200">
-            <div className="form-control dropdown"><label className="label"><span className="label-text">Cari Barang (Scan atau Ketik Nama)</span></label><div className="join w-full"><input type="text" placeholder="Hanya barang dengan stok tersedia akan muncul..." className="input input-bordered join-item w-full" value={searchTerm} onChange={(e) => {setSearchTerm(e.target.value); setSelectedItem(null);}}/><button type="button" onClick={() => setShowScanner(true)} className="btn btn-primary join-item">Scan</button></div>
-            {filteredItems.length > 0 && !selectedItem && (<ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">{filteredItems.slice(0, 5).map(item => (<li key={item.id}><a onClick={() => handleSelectItem(item)}>{item.name} (Stok: {item.totalStockInPcs})</a></li>))}</ul>)}
-            </div>
-            {selectedItem && (<div className="mt-4"><p className="font-bold">Barang Terpilih: {selectedItem.name}</p><p className="text-sm">Sisa Stok Tersedia: <span className='font-bold text-lg'>{itemStock}</span> Pcs</p><div className="mt-2 grid grid-cols-3 md:grid-cols-4 gap-4 items-end"><div className="form-control"><label className="label-text">DOS</label><input type="number" value={dosQty} onChange={(e) => setDosQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div><div className="form-control"><label className="label-text">PACK</label><input type="number" value={packQty} onChange={(e) => setPackQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div><div className="form-control"><label className="label-text">PCS</label><input type="number" value={pcsQty} onChange={(e) => setPcsQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div><button type="button" onClick={handleAddItemToList} className="btn btn-secondary">Tambah ke Daftar</button></div></div>)}
-        </div>
-        <div className="divider">Barang dalam Surat Jalan Ini</div>
-        <div className="overflow-x-auto"><table className="table w-full"><thead><tr><th>Nama Barang</th><th>Jumlah Dikirim</th><th>Aksi</th></tr></thead><tbody>{transferItems.map((item, index) => (<tr key={index}><td>{item.name}</td><td>{item.displayQty}</td><td><button onClick={() => handleRemoveFromList(index)} className="btn btn-xs btn-error">Hapus</button></td></tr>))}</tbody></table></div>
-        <div className="form-control mt-6"><button type="button" onClick={handleSaveDraft} className="btn btn-primary btn-lg" disabled={transferItems.length === 0}>Simpan & Kirim Barang</button></div>
-      </div>
-    </>
-  );
-};
-const PengirimanKeluarTab = ({ userProfile }) => {
-    const [outgoingTransfers, setOutgoingTransfers] = useState([]);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        const transfersRef = query(ref(db, 'stock_transfers'), orderByChild('fromDepotId'), equalTo(userProfile.depotId));
-        onValue(transfersRef, (snapshot) => {
-            const data = snapshot.val() || {};
-            const transferList = Object.keys(data).map(key => ({ id: key, ...data[key] }));
-            setOutgoingTransfers(transferList.sort((a,b) => b.createdAt - a.createdAt));
-            setLoading(false);
-        });
-    }, [userProfile.depotId]);
-
     return (
-        <div className="p-4">
+    <div className="p-8">
+      {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
+      <h1 className="text-3xl font-bold mb-6">Transfer Stok Antar Depo</h1>
+      
+      <div role="tablist" className="tabs tabs-lifted">
+        <a role="tab" className={`tab ${activeTab === 'buat' ? 'tab-active' : ''}`} onClick={() => setActiveTab('buat')}>
+          Buat Transfer Baru
+        </a>
+        <a role="tab" className={`tab ${activeTab === 'keluar' ? 'tab-active' : ''}`} onClick={() => setActiveTab('keluar')}>
+          Pengiriman Keluar
+        </a>
+        <a role="tab" className={`tab ${activeTab === 'masuk' ? 'tab-active' : ''}`} onClick={() => setActiveTab('masuk')}>
+          Penerimaan Masuk
+        </a>
+      </div>
+
+      <div className="bg-white p-6 rounded-b-lg rounded-tr-lg shadow-lg min-h-96">
+        {activeTab === 'buat' && (
+          <>
+            <div className="hidden print:block p-4">
+                <div className="flex items-center justify-center mb-4 border-b-2 border-black pb-2">
+                <img src="/logo_bulet_mhm.gif" alt="Logo Perusahaan" className="h-20 w-20 mr-4" />
+                <div><h1 className="text-2xl font-bold">PT. Mahameru Mitra Makmur</h1><p className="text-center">Depo Asal: {userProfile.depotId}</p></div>
+                </div>
+                <h2 className="text-xl font-semibold mt-4 text-center">SURAT JALAN TRANSFER</h2>
+                <div className="flex justify-between text-sm my-4">
+                <div><p><strong>No. Surat Jalan:</strong> {suratJalan}</p><p><strong>Depo Tujuan:</strong> {allDepots.find(d => d.id === destinationDepot)?.name || destinationDepot}</p></div>
+                <div><p><strong>Tanggal:</strong> {new Date().toLocaleDateString('id-ID')}</p></div>
+                </div>
+                <table className="table w-full table-compact">
+                <thead><tr><th>No.</th><th>Nama Barang</th><th>Jumlah</th></tr></thead>
+                <tbody>{transferItems.map((item, index) => (<tr key={index}><td>{index + 1}</td><td>{item.name}</td><td>{item.displayQty}</td></tr>))}</tbody>
+                </table>
+                <div className="flex justify-around mt-16 text-center text-sm">
+                <div><p className="mb-16">(______________________)</p><p>Kepala Depo</p></div>
+                <div><p className="mb-16">(______________________)</p><p>Admin</p></div>
+                <div><p className="mb-16">(______________________)</p><p>Kepala Gudang</p></div>
+                </div>
+            </div>
+            <div className="print:hidden">
+              <div className="flex justify-end mb-4">
+                  <button className="btn btn-info" onClick={handlePrint} disabled={transferItems.length === 0}>Cetak Surat Jalan</button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 p-4 border rounded-lg">
+                  <div className="form-control"><label className="label"><span className="label-text font-bold">No. Surat Jalan</span></label><input type="text" value={suratJalan} onChange={(e) => setSuratJalan(e.target.value)} className="input input-bordered" /></div>
+                  <div className="form-control"><label className="label"><span className="label-text font-bold">Depo Tujuan</span></label><select value={destinationDepot} onChange={(e) => setDestinationDepot(e.target.value)} className="select select-bordered"><option value="">Pilih Depo Tujuan</option>{allDepots.map(depot => <option key={depot.id} value={depot.id}>{depot.name}</option>)}</select></div>
+              </div>
+              <div className="divider">Detail Barang</div>
+              <div className="p-4 border rounded-lg bg-base-200">
+                  <div className="form-control dropdown"><label className="label"><span className="label-text">Cari Barang (Scan atau Ketik Nama)</span></label><div className="join w-full"><input type="text" placeholder="Hanya barang dengan stok tersedia akan muncul..." className="input input-bordered join-item w-full" value={searchTerm} onChange={(e) => {setSearchTerm(e.target.value); setSelectedItem(null);}}/><button type="button" onClick={() => setShowScanner(true)} className="btn btn-primary join-item">Scan</button></div>
+                  {filteredItems.length > 0 && !selectedItem && (<ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">{filteredItems.slice(0, 5).map(item => (<li key={item.id}><a onClick={() => handleSelectItem(item)}>{item.name} (Stok: {item.totalStockInPcs})</a></li>))}</ul>)}
+                  </div>
+                  {selectedItem && (<div className="mt-4"><p className="font-bold">Barang Terpilih: {selectedItem.name}</p><p className="text-sm">Sisa Stok Tersedia: <span className='font-bold text-lg'>{itemStock}</span> Pcs</p><div className="mt-2 grid grid-cols-3 md:grid-cols-4 gap-4 items-end"><div className="form-control"><label className="label-text">DOS</label><input type="number" value={dosQty} onChange={(e) => setDosQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div><div className="form-control"><label className="label-text">PACK</label><input type="number" value={packQty} onChange={(e) => setPackQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div><div className="form-control"><label className="label-text">PCS</label><input type="number" value={pcsQty} onChange={(e) => setPcsQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div><button type="button" onClick={handleAddItemToList} className="btn btn-secondary">Tambah ke Daftar</button></div></div>)}
+              </div>
+              <div className="divider">Barang dalam Surat Jalan Ini</div>
+              <div className="overflow-x-auto"><table className="table w-full"><thead><tr><th>Nama Barang</th><th>Jumlah Dikirim</th><th>Aksi</th></tr></thead><tbody>{transferItems.map((item, index) => (<tr key={index}><td>{item.name}</td><td>{item.displayQty}</td><td><button onClick={() => handleRemoveFromList(index)} className="btn btn-xs btn-error">Hapus</button></td></tr>))}</tbody></table></div>
+              <div className="form-control mt-6"><button type="button" onClick={handleSaveDraft} className="btn btn-primary btn-lg" disabled={transferItems.length === 0}>Simpan & Kirim Barang</button></div>
+            </div>
+          </>
+        )}
+
+        {activeTab === 'keluar' && (
+          <div className="p-4">
             <h3 className="text-xl font-semibold mb-4">Daftar Pengiriman Keluar</h3>
             <div className="overflow-x-auto">
                 <table className="table table-zebra w-full">
@@ -201,61 +268,11 @@ const PengirimanKeluarTab = ({ userProfile }) => {
                     </tbody>
                 </table>
             </div>
-        </div>
-    );
-};
+          </div>
+        )}
 
-const PenerimaanMasukTab = ({ userProfile }) => {
-    const [incomingTransfers, setIncomingTransfers] = useState([]);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        const transfersRef = query(ref(db, 'stock_transfers'), orderByChild('toDepotId'), equalTo(userProfile.depotId));
-        onValue(transfersRef, (snapshot) => {
-            const data = snapshot.val() || {};
-            const transferList = Object.keys(data).map(key => ({ id: key, ...data[key] }));
-            setIncomingTransfers(transferList.sort((a,b) => b.createdAt - a.createdAt));
-            setLoading(false);
-        });
-    }, [userProfile.depotId]);
-
-    const handleConfirmReceipt = async (transfer) => {
-        if (!window.confirm(`Konfirmasi penerimaan barang dari ${transfer.fromDepotId} dengan No. SJ ${transfer.suratJalan}? Stok akan diperbarui.`)) return;
-
-        try {
-            const updates = {};
-            updates[`/stock_transfers/${transfer.id}/status`] = 'Diterima';
-            updates[`/stock_transfers/${transfer.id}/receivedAt`] = serverTimestamp();
-            updates[`/stock_transfers/${transfer.id}/receivedBy`] = userProfile.fullName;
-
-            for (const item of transfer.items) {
-                const toStockRef = ref(db, `depots/${userProfile.depotId}/stock/${item.id}`);
-                await runTransaction(toStockRef, (currentStock) => {
-                    if (!currentStock) return { totalStockInPcs: item.quantityInPcs, damagedStockInPcs: 0, inTransitStock: 0 };
-                    currentStock.totalStockInPcs = (currentStock.totalStockInPcs || 0) + item.quantityInPcs;
-                    return currentStock;
-                });
-                
-                const fromStockRef = ref(db, `depots/${transfer.fromDepotId}/stock/${item.id}`);
-                await runTransaction(fromStockRef, (currentStock) => {
-                    if (currentStock) {
-                        currentStock.inTransitStock = (currentStock.inTransitStock || 0) - item.quantityInPcs;
-                    }
-                    return currentStock;
-                });
-            }
-
-            await update(ref(db), updates);
-            toast.success("Penerimaan barang berhasil dikonfirmasi.");
-
-        } catch (err) {
-            toast.error("Gagal mengonfirmasi penerimaan.");
-            console.error(err);
-        }
-    };
-
-    return (
-        <div className="p-4">
+        {activeTab === 'masuk' && (
+          <div className="p-4">
             <h3 className="text-xl font-semibold mb-4">Daftar Penerimaan Masuk</h3>
             <div className="overflow-x-auto">
                 <table className="table table-zebra w-full">
@@ -281,32 +298,8 @@ const PenerimaanMasukTab = ({ userProfile }) => {
                     </tbody>
                 </table>
             </div>
-        </div>
-    );
-};
-function TransferStok({ userProfile }) {
-  const [activeTab, setActiveTab] = useState('buat');
-
-  return (
-    <div className="p-8">
-      <h1 className="text-3xl font-bold mb-6">Transfer Stok Antar Depo</h1>
-      
-      <div role="tablist" className="tabs tabs-lifted">
-        <a role="tab" className={`tab ${activeTab === 'buat' ? 'tab-active' : ''}`} onClick={() => setActiveTab('buat')}>
-          Buat Transfer Baru
-        </a>
-        <a role="tab" className={`tab ${activeTab === 'keluar' ? 'tab-active' : ''}`} onClick={() => setActiveTab('keluar')}>
-          Pengiriman Keluar
-        </a>
-        <a role="tab" className={`tab ${activeTab === 'masuk' ? 'tab-active' : ''}`} onClick={() => setActiveTab('masuk')}>
-          Penerimaan Masuk
-        </a>
-      </div>
-
-      <div className="bg-white p-6 rounded-b-lg rounded-tr-lg shadow-lg min-h-96">
-        {activeTab === 'buat' && <BuatTransferTab userProfile={userProfile} allDepots={[]} />}
-        {activeTab === 'keluar' && <PengirimanKeluarTab userProfile={userProfile} />}
-        {activeTab === 'masuk' && <PenerimaanMasukTab userProfile={userProfile} />}
+          </div>
+        )}
       </div>
     </div>
   );
