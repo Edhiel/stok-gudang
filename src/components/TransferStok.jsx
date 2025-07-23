@@ -35,29 +35,40 @@ function TransferStok({ userProfile }) {
   const [outgoingTransfers, setOutgoingTransfers] = useState([]);
   const [incomingTransfers, setIncomingTransfers] = useState([]);
 
+  // --- PERBAIKAN ---
+  // Efek untuk mengambil data global yang tidak bergantung pada user (seperti daftar semua depo)
+  // Ini hanya berjalan sekali saat komponen dimuat.
   useEffect(() => {
-    // Guard clause: Jangan jalankan apapun jika userProfile belum siap
+    const depotsRef = ref(db, 'depots');
+    get(depotsRef).then((snapshot) => {
+      if (snapshot.exists()) {
+        const depotsData = snapshot.val();
+        const depotList = Object.keys(depotsData).map(key => ({
+          id: key,
+          name: depotsData[key].info?.name || key
+        }));
+        setAllDepots(depotList);
+      }
+    }).catch(err => {
+      console.error("Gagal mengambil daftar depo:", err);
+      toast.error("Gagal memuat daftar depo.");
+    });
+  }, []); // <-- Array dependensi kosong berarti efek ini hanya berjalan sekali
+
+  // Efek untuk mengambil data yang bergantung pada userProfile
+  useEffect(() => {
     if (!userProfile || !userProfile.depotId) {
         setLoading(false);
         return;
     }
     setLoading(true);
 
-    // --- PERBAIKAN UTAMA: Gunakan Promise.all untuk memastikan semua data siap ---
-    const depotsPromise = get(ref(db, 'depots'));
     const masterItemsPromise = get(ref(db, 'master_items'));
 
-    Promise.all([depotsPromise, masterItemsPromise]).then(([depotsSnapshot, masterItemsSnapshot]) => {
-      const depotsData = depotsSnapshot.val() || {};
-      const depotList = Object.keys(depotsData).map(key => ({ 
-          id: key, 
-          name: depotsData[key].info?.name || key 
-      }));
-      setAllDepots(depotList);
-
+    // Sekarang Promise.all tidak perlu lagi mengambil daftar depo
+    Promise.all([masterItemsPromise]).then(([masterItemsSnapshot]) => {
       const masterData = masterItemsSnapshot.val() || {};
       
-      // Listener untuk data stok (real-time)
       const stockRef = ref(db, `depots/${userProfile.depotId}/stock`);
       onValue(stockRef, (stockSnapshot) => {
         const stockData = stockSnapshot.val() || {};
@@ -67,21 +78,19 @@ function TransferStok({ userProfile }) {
         setAvailableItems(available);
       });
 
-      // Listener untuk transfer keluar
       const outgoingQuery = query(ref(db, 'stock_transfers'), orderByChild('fromDepotId'), equalTo(userProfile.depotId));
       onValue(outgoingQuery, (snapshot) => {
           const data = snapshot.val() || {};
           setOutgoingTransfers(Object.keys(data).map(key => ({ id: key, ...data[key] })).sort((a,b) => b.createdAt - a.createdAt));
       });
 
-      // Listener untuk transfer masuk
       const incomingQuery = query(ref(db, 'stock_transfers'), orderByChild('toDepotId'), equalTo(userProfile.depotId));
       onValue(incomingQuery, (snapshot) => {
           const data = snapshot.val() || {};
           setIncomingTransfers(Object.keys(data).map(key => ({ id: key, ...data[key] })).sort((a,b) => b.createdAt - a.createdAt));
       });
 
-      setLoading(false); // Hentikan loading SETELAH semua data siap
+      setLoading(false);
     }).catch(err => {
         console.error("Gagal mengambil data awal:", err);
         setLoading(false);
@@ -191,9 +200,11 @@ function TransferStok({ userProfile }) {
     ? availableItems.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
     : [];
 
+  // Kalkulasi daftar depo tujuan. Ini sekarang lebih stabil karena `allDepots` tidak sering berubah.
   const destinationDepots = userProfile?.depotId
   ? allDepots.filter(depot => depot.id.toUpperCase() !== userProfile.depotId.toUpperCase())
   : [];
+
   if (loading) {
     return (
       <div className="p-8 text-center">
