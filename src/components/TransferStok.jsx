@@ -36,7 +36,12 @@ function TransferStok({ userProfile }) {
   const [incomingTransfers, setIncomingTransfers] = useState([]);
 
   useEffect(() => {
-    if (!userProfile || !userProfile.depotId) return;
+    // Guard clause: Jangan jalankan apapun jika userProfile belum siap
+    if (!userProfile || !userProfile.depotId) {
+        setLoading(false);
+        return;
+    }
+    setLoading(true);
 
     // Ambil daftar semua depo
     const depotsRef = ref(db, 'depots');
@@ -49,7 +54,7 @@ function TransferStok({ userProfile }) {
       setAllDepots(depotList);
     });
 
-    // Ambil daftar barang yang punya stok di depo saat ini (untuk Tab 1)
+    // Ambil daftar barang yang punya stok di depo saat ini
     const masterItemsRef = ref(db, 'master_items');
     get(masterItemsRef).then((masterSnapshot) => {
       const masterItems = masterSnapshot.val() || {};
@@ -60,7 +65,7 @@ function TransferStok({ userProfile }) {
           .filter(itemId => (stockData[itemId].totalStockInPcs || 0) > 0)
           .map(itemId => ({ id: itemId, ...masterItems[itemId], totalStockInPcs: stockData[itemId].totalStockInPcs }));
         setAvailableItems(available);
-        setLoading(false); // Pindahkan setLoading ke sini agar berhenti setelah data utama dimuat
+        setLoading(false); // Hentikan loading setelah data utama siap
       });
     });
 
@@ -188,9 +193,10 @@ function TransferStok({ userProfile }) {
     ? availableItems.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
     : [];
 
-  // Filter daftar depo untuk dropdown agar tidak menampilkan depo sendiri
   const destinationDepots = allDepots.filter(depot => depot.id.toUpperCase() !== userProfile.depotId.toUpperCase());
-  if (loading) return <div className="p-8">Loading barang & depo...</div>;
+  if (loading) {
+    return <div className="p-8 text-center"><span className="loading loading-lg"></span></div>;
+  }
 
   return (
     <div className="p-8">
