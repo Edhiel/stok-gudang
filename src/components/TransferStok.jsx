@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ref, onValue, get, push, serverTimestamp, runTransaction, update, query, orderByChild, equalTo } from 'firebase/database';
 import { db } from '../firebaseConfig';
 import CameraBarcodeScanner from './CameraBarcodeScanner';
@@ -14,9 +14,11 @@ const formatToDPP = (totalPcs, conversions) => {
 function TransferStok({ userProfile }) {
   const [activeTab, setActiveTab] = useState('buat');
   const [loading, setLoading] = useState(true);
+
+  // State untuk data yang dibutuhkan di semua tab
   const [allDepots, setAllDepots] = useState([]);
 
-  // State untuk Tab 1 (Buat Transfer)
+  // State untuk Tab 1: Buat Transfer
   const [availableItems, setAvailableItems] = useState([]);
   const [suratJalan, setSuratJalan] = useState('');
   const [destinationDepot, setDestinationDepot] = useState('');
@@ -28,25 +30,26 @@ function TransferStok({ userProfile }) {
   const [pcsQty, setPcsQty] = useState(0);
   const [transferItems, setTransferItems] = useState([]);
   const [showScanner, setShowScanner] = useState(false);
-  
+
   // State untuk Tab 2 & 3
   const [outgoingTransfers, setOutgoingTransfers] = useState([]);
   const [incomingTransfers, setIncomingTransfers] = useState([]);
 
-  // Mengambil data awal yang dibutuhkan semua tab
   useEffect(() => {
     if (!userProfile || !userProfile.depotId) return;
 
+    // Ambil daftar semua depo
     const depotsRef = ref(db, 'depots');
     onValue(depotsRef, (snapshot) => {
       const data = snapshot.val() || {};
-      const depotList = Object.keys(data).map(key => ({ 
-          id: key, 
-          name: data[key].info?.name || key 
+      const depotList = Object.keys(data).map(key => ({
+        id: key,
+        name: data[key].info?.name || key
       }));
       setAllDepots(depotList);
     });
 
+    // Ambil daftar barang yang punya stok di depo saat ini (untuk Tab 1)
     const masterItemsRef = ref(db, 'master_items');
     get(masterItemsRef).then((masterSnapshot) => {
       const masterItems = masterSnapshot.val() || {};
@@ -57,24 +60,25 @@ function TransferStok({ userProfile }) {
           .filter(itemId => (stockData[itemId].totalStockInPcs || 0) > 0)
           .map(itemId => ({ id: itemId, ...masterItems[itemId], totalStockInPcs: stockData[itemId].totalStockInPcs }));
         setAvailableItems(available);
+        setLoading(false);
       });
     });
 
+    // Ambil data Pengiriman Keluar (untuk Tab 2)
     const outgoingQuery = query(ref(db, 'stock_transfers'), orderByChild('fromDepotId'), equalTo(userProfile.depotId));
     onValue(outgoingQuery, (snapshot) => {
-        const data = snapshot.val() || {};
-        const transferList = Object.keys(data).map(key => ({ id: key, ...data[key] }));
-        setOutgoingTransfers(transferList.sort((a,b) => b.createdAt - a.createdAt));
+      const data = snapshot.val() || {};
+      const transferList = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+      setOutgoingTransfers(transferList.sort((a, b) => b.createdAt - a.createdAt));
     });
 
+    // Ambil data Penerimaan Masuk (untuk Tab 3)
     const incomingQuery = query(ref(db, 'stock_transfers'), orderByChild('toDepotId'), equalTo(userProfile.depotId));
     onValue(incomingQuery, (snapshot) => {
-        const data = snapshot.val() || {};
-        const transferList = Object.keys(data).map(key => ({ id: key, ...data[key] }));
-        setIncomingTransfers(transferList.sort((a,b) => b.createdAt - a.createdAt));
+      const data = snapshot.val() || {};
+      const transferList = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+      setIncomingTransfers(transferList.sort((a, b) => b.createdAt - a.createdAt));
     });
-
-    setLoading(false);
   }, [userProfile]);
 
   const handleBarcodeDetected = (scannedBarcode) => {
@@ -179,7 +183,7 @@ function TransferStok({ userProfile }) {
     }
   };
 
-  const filteredItems = searchTerm.length > 0 
+  const filteredItems = searchTerm.length > 0
     ? availableItems.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
     : [];
 
