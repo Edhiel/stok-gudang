@@ -15,11 +15,10 @@ function TransferStok({ userProfile }) {
   const [activeTab, setActiveTab] = useState('buat');
   const [loading, setLoading] = useState(true);
 
-  // Data umum
+  // State untuk data yang dibutuhkan di semua tab
   const [allDepots, setAllDepots] = useState([]);
-  const [masterItems, setMasterItems] = useState({});
 
-  // Tab 1: Buat Transfer
+  // State untuk Tab 1: Buat Transfer
   const [availableItems, setAvailableItems] = useState([]);
   const [suratJalan, setSuratJalan] = useState('');
   const [destinationDepot, setDestinationDepot] = useState('');
@@ -32,7 +31,7 @@ function TransferStok({ userProfile }) {
   const [transferItems, setTransferItems] = useState([]);
   const [showScanner, setShowScanner] = useState(false);
   
-  // Tab 2 & 3
+  // State untuk Tab 2 & 3
   const [outgoingTransfers, setOutgoingTransfers] = useState([]);
   const [incomingTransfers, setIncomingTransfers] = useState([]);
 
@@ -43,50 +42,44 @@ function TransferStok({ userProfile }) {
     }
     setLoading(true);
 
-    const depotsPromise = get(ref(db, 'depots'));
-    const masterItemsPromise = get(ref(db, 'master_items'));
+    const depotsRef = ref(db, 'depots');
+    onValue(depotsRef, (snapshot) => {
+      const data = snapshot.val() || {};
+      const depotList = Object.keys(data).map(key => ({ 
+          id: key, 
+          name: data[key].info?.name || key 
+      }));
+      setAllDepots(depotList);
+    });
 
-    Promise.all([depotsPromise, masterItemsPromise])
-      .then(([depotsSnapshot, masterItemsSnapshot]) => {
-        const depotsData = depotsSnapshot.val() || {};
-        const depotList = Object.keys(depotsData).map(key => ({
-          id: key,
-          name: depotsData[key].info?.name || key, // Fallback ke ID jika name tidak ada
-        }));
-        console.log('All Depots:', depotList); // Debugging
-        setAllDepots(depotList);
-
-        const masterData = masterItemsSnapshot.val() || {};
-        setMasterItems(masterData);
-
-        const stockRef = ref(db, `depots/${userProfile.depotId}/stock`);
-        onValue(stockRef, (stockSnapshot) => {
-          const stockData = stockSnapshot.val() || {};
-          const available = Object.keys(stockData)
-            .filter(itemId => (stockData[itemId].totalStockInPcs || 0) > 0)
-            .map(itemId => ({ id: itemId, ...masterData[itemId], totalStockInPcs: stockData[itemId].totalStockInPcs }));
-          setAvailableItems(available);
-        });
-
-        const outgoingQuery = query(ref(db, 'stock_transfers'), orderByChild('fromDepotId'), equalTo(userProfile.depotId));
-        onValue(outgoingQuery, (snapshot) => {
-          const data = snapshot.val() || {};
-          setOutgoingTransfers(Object.keys(data).map(key => ({ id: key, ...data[key] })).sort((a, b) => b.createdAt - a.createdAt));
-        });
-
-        const incomingQuery = query(ref(db, 'stock_transfers'), orderByChild('toDepotId'), equalTo(userProfile.depotId));
-        onValue(incomingQuery, (snapshot) => {
-          const data = snapshot.val() || {};
-          setIncomingTransfers(Object.keys(data).map(key => ({ id: key, ...data[key] })).sort((a, b) => b.createdAt - a.createdAt));
-        });
-
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error('Error fetching data:', err);
-        toast.error('Gagal memuat data depo.');
+    const masterItemsRef = ref(db, 'master_items');
+    get(masterItemsRef).then((masterSnapshot) => {
+      const masterItems = masterSnapshot.val() || {};
+      const stockRef = ref(db, `depots/${userProfile.depotId}/stock`);
+      onValue(stockRef, (stockSnapshot) => {
+        const stockData = stockSnapshot.val() || {};
+        const available = Object.keys(stockData)
+          .filter(itemId => (stockData[itemId].totalStockInPcs || 0) > 0)
+          .map(itemId => ({ id: itemId, ...masterItems[itemId], totalStockInPcs: stockData[itemId].totalStockInPcs }));
+        setAvailableItems(available);
         setLoading(false);
       });
+    });
+
+    const outgoingQuery = query(ref(db, 'stock_transfers'), orderByChild('fromDepotId'), equalTo(userProfile.depotId));
+    onValue(outgoingQuery, (snapshot) => {
+        const data = snapshot.val() || {};
+        const transferList = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+        setOutgoingTransfers(transferList.sort((a,b) => b.createdAt - a.createdAt));
+    });
+
+    const incomingQuery = query(ref(db, 'stock_transfers'), orderByChild('toDepotId'), equalTo(userProfile.depotId));
+    onValue(incomingQuery, (snapshot) => {
+        const data = snapshot.val() || {};
+        const transferList = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+        setIncomingTransfers(transferList.sort((a,b) => b.createdAt - a.createdAt));
+    });
+
   }, [userProfile]);
 
   const handleBarcodeDetected = (scannedBarcode) => {
@@ -127,7 +120,9 @@ function TransferStok({ userProfile }) {
         const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${item.id}`);
         await runTransaction(stockRef, (currentStock) => {
           if (currentStock) {
-            if ((currentStock.totalStockInPcs || 0) < item.quantityInPcs) throw new Error(`Stok untuk ${item.name} tidak cukup.`);
+            if ((currentStock.totalStockInPcs || 0) < item.quantityInPcs) {
+              throw new Error(`Stok untuk ${item.name} tidak cukup.`);
+            }
             currentStock.totalStockInPcs -= item.quantityInPcs;
             currentStock.inTransitStock = (currentStock.inTransitStock || 0) + item.quantityInPcs;
           }
@@ -175,7 +170,9 @@ function TransferStok({ userProfile }) {
             });
             const fromStockRef = ref(db, `depots/${transfer.fromDepotId}/stock/${item.id}`);
             await runTransaction(fromStockRef, (currentStock) => {
-                if (currentStock) currentStock.inTransitStock = (currentStock.inTransitStock || 0) - item.quantityInPcs;
+                if (currentStock) {
+                    currentStock.inTransitStock = (currentStock.inTransitStock || 0) - item.quantityInPcs;
+                }
                 return currentStock;
             });
         }
@@ -192,14 +189,11 @@ function TransferStok({ userProfile }) {
     : [];
 
   const destinationDepots = allDepots.filter(depot => depot.id.toUpperCase() !== userProfile.depotId.toUpperCase());
-  console.log('User Depot ID:', userProfile.depotId); // Debugging
-  console.log('Destination Depots:', destinationDepots); // Debugging
-
   if (loading) {
     return (
       <div className="p-8 text-center">
         <span className="loading loading-lg"></span>
-        <p>Memuat data transfer...</p>
+        <p>Memuat data...</p>
       </div>
     );
   }
@@ -210,9 +204,15 @@ function TransferStok({ userProfile }) {
       <h1 className="text-3xl font-bold mb-6">Transfer Stok Antar Depo</h1>
       
       <div role="tablist" className="tabs tabs-lifted">
-        <a role="tab" className={`tab ${activeTab === 'buat' ? 'tab-active' : ''}`} onClick={() => setActiveTab('buat')}>Buat Transfer Baru</a>
-        <a role="tab" className={`tab ${activeTab === 'keluar' ? 'tab-active' : ''}`} onClick={() => setActiveTab('keluar')}>Pengiriman Keluar</a>
-        <a role="tab" className={`tab ${activeTab === 'masuk' ? 'tab-active' : ''}`} onClick={() => setActiveTab('masuk')}>Penerimaan Masuk</a>
+        <a role="tab" className={`tab ${activeTab === 'buat' ? 'tab-active' : ''}`} onClick={() => setActiveTab('buat')}>
+          Buat Transfer Baru
+        </a>
+        <a role="tab" className={`tab ${activeTab === 'keluar' ? 'tab-active' : ''}`} onClick={() => setActiveTab('keluar')}>
+          Pengiriman Keluar
+        </a>
+        <a role="tab" className={`tab ${activeTab === 'masuk' ? 'tab-active' : ''}`} onClick={() => setActiveTab('masuk')}>
+          Penerimaan Masuk
+        </a>
       </div>
 
       <div className="bg-white p-6 rounded-b-lg rounded-tr-lg shadow-lg min-h-96">
@@ -232,27 +232,7 @@ function TransferStok({ userProfile }) {
               <div className="flex justify-end mb-4"><button className="btn btn-info" onClick={handlePrint} disabled={transferItems.length === 0}>Cetak Surat Jalan</button></div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 p-4 border rounded-lg">
                   <div className="form-control"><label className="label"><span className="label-text font-bold">No. Surat Jalan</span></label><input type="text" value={suratJalan} onChange={(e) => setSuratJalan(e.target.value)} className="input input-bordered" /></div>
-                  <div className="form-control">
-                    <label className="label">
-                      <span className="label-text font-bold">Depo Tujuan</span>
-                    </label>
-                    <select
-                      value={destinationDepot}
-                      onChange={(e) => setDestinationDepot(e.target.value)}
-                      className="select select-bordered"
-                    >
-                      <option value="">Pilih Depo Tujuan</option>
-                      {destinationDepots.length > 0 ? (
-                        destinationDepots.map(depot => (
-                          <option key={depot.id} value={depot.id}>
-                            {depot.name}
-                          </option>
-                        ))
-                      ) : (
-                        <option disabled>Tidak ada depo tujuan tersedia</option>
-                      )}
-                    </select>
-                  </div>
+                  <div className="form-control"><label className="label"><span className="label-text font-bold">Depo Tujuan</span></label><select value={destinationDepot} onChange={(e) => setDestinationDepot(e.target.value)} className="select select-bordered"><option value="">Pilih Depo Tujuan</option>{destinationDepots.map(depot => <option key={depot.id} value={depot.id}>{depot.name}</option>)}</select></div>
               </div>
               <div className="divider">Detail Barang</div>
               <div className="p-4 border rounded-lg bg-base-200">
