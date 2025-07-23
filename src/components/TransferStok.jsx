@@ -15,10 +15,11 @@ function TransferStok({ userProfile }) {
   const [activeTab, setActiveTab] = useState('buat');
   const [loading, setLoading] = useState(true);
 
-  // State untuk data yang dibutuhkan di semua tab
+  // Data umum
   const [allDepots, setAllDepots] = useState([]);
+  const [masterItems, setMasterItems] = useState({});
 
-  // State untuk Tab 1: Buat Transfer
+  // Tab 1: Buat Transfer
   const [availableItems, setAvailableItems] = useState([]);
   const [suratJalan, setSuratJalan] = useState('');
   const [destinationDepot, setDestinationDepot] = useState('');
@@ -31,7 +32,7 @@ function TransferStok({ userProfile }) {
   const [transferItems, setTransferItems] = useState([]);
   const [showScanner, setShowScanner] = useState(false);
   
-  // State untuk Tab 2 & 3
+  // Tab 2 & 3
   const [outgoingTransfers, setOutgoingTransfers] = useState([]);
   const [incomingTransfers, setIncomingTransfers] = useState([]);
 
@@ -42,42 +43,49 @@ function TransferStok({ userProfile }) {
     }
     setLoading(true);
 
-    const depotsRef = ref(db, 'depots');
-    onValue(depotsRef, (snapshot) => {
-      const data = snapshot.val() || {};
-      const depotList = Object.keys(data).map(key => ({ 
+    // --- PERBAIKAN UTAMA: Gunakan Promise.all untuk memastikan semua data siap ---
+    const depotsPromise = get(ref(db, 'depots'));
+    const masterItemsPromise = get(ref(db, 'master_items'));
+
+    Promise.all([depotsPromise, masterItemsPromise]).then(([depotsSnapshot, masterItemsSnapshot]) => {
+      const depotsData = depotsSnapshot.val() || {};
+      const depotList = Object.keys(depotsData).map(key => ({ 
           id: key, 
-          name: data[key].info?.name || key 
+          name: depotsData[key].info?.name || key 
       }));
       setAllDepots(depotList);
-    });
 
-    const masterItemsRef = ref(db, 'master_items');
-    get(masterItemsRef).then((masterSnapshot) => {
-      const masterItems = masterSnapshot.val() || {};
+      const masterData = masterItemsSnapshot.val() || {};
+      setMasterItems(masterData);
+
+      // Listener untuk data stok (real-time)
       const stockRef = ref(db, `depots/${userProfile.depotId}/stock`);
       onValue(stockRef, (stockSnapshot) => {
         const stockData = stockSnapshot.val() || {};
         const available = Object.keys(stockData)
           .filter(itemId => (stockData[itemId].totalStockInPcs || 0) > 0)
-          .map(itemId => ({ id: itemId, ...masterItems[itemId], totalStockInPcs: stockData[itemId].totalStockInPcs }));
+          .map(itemId => ({ id: itemId, ...masterData[itemId], totalStockInPcs: stockData[itemId].totalStockInPcs }));
         setAvailableItems(available);
-        setLoading(false);
       });
-    });
 
-    const outgoingQuery = query(ref(db, 'stock_transfers'), orderByChild('fromDepotId'), equalTo(userProfile.depotId));
-    onValue(outgoingQuery, (snapshot) => {
-        const data = snapshot.val() || {};
-        const transferList = Object.keys(data).map(key => ({ id: key, ...data[key] }));
-        setOutgoingTransfers(transferList.sort((a,b) => b.createdAt - a.createdAt));
-    });
+      // Listener untuk transfer keluar
+      const outgoingQuery = query(ref(db, 'stock_transfers'), orderByChild('fromDepotId'), equalTo(userProfile.depotId));
+      onValue(outgoingQuery, (snapshot) => {
+          const data = snapshot.val() || {};
+          setOutgoingTransfers(Object.keys(data).map(key => ({ id: key, ...data[key] })).sort((a,b) => b.createdAt - a.createdAt));
+      });
 
-    const incomingQuery = query(ref(db, 'stock_transfers'), orderByChild('toDepotId'), equalTo(userProfile.depotId));
-    onValue(incomingQuery, (snapshot) => {
-        const data = snapshot.val() || {};
-        const transferList = Object.keys(data).map(key => ({ id: key, ...data[key] }));
-        setIncomingTransfers(transferList.sort((a,b) => b.createdAt - a.createdAt));
+      // Listener untuk transfer masuk
+      const incomingQuery = query(ref(db, 'stock_transfers'), orderByChild('toDepotId'), equalTo(userProfile.depotId));
+      onValue(incomingQuery, (snapshot) => {
+          const data = snapshot.val() || {};
+          setIncomingTransfers(Object.keys(data).map(key => ({ id: key, ...data[key] })).sort((a,b) => b.createdAt - a.createdAt));
+      });
+
+      setLoading(false); // Hentikan loading SETELAH semua data siap
+    }).catch(err => {
+        console.error("Gagal mengambil data awal:", err);
+        setLoading(false);
     });
 
   }, [userProfile]);
@@ -120,9 +128,7 @@ function TransferStok({ userProfile }) {
         const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${item.id}`);
         await runTransaction(stockRef, (currentStock) => {
           if (currentStock) {
-            if ((currentStock.totalStockInPcs || 0) < item.quantityInPcs) {
-              throw new Error(`Stok untuk ${item.name} tidak cukup.`);
-            }
+            if ((currentStock.totalStockInPcs || 0) < item.quantityInPcs) throw new Error(`Stok untuk ${item.name} tidak cukup.`);
             currentStock.totalStockInPcs -= item.quantityInPcs;
             currentStock.inTransitStock = (currentStock.inTransitStock || 0) + item.quantityInPcs;
           }
@@ -170,9 +176,7 @@ function TransferStok({ userProfile }) {
             });
             const fromStockRef = ref(db, `depots/${transfer.fromDepotId}/stock/${item.id}`);
             await runTransaction(fromStockRef, (currentStock) => {
-                if (currentStock) {
-                    currentStock.inTransitStock = (currentStock.inTransitStock || 0) - item.quantityInPcs;
-                }
+                if (currentStock) currentStock.inTransitStock = (currentStock.inTransitStock || 0) - item.quantityInPcs;
                 return currentStock;
             });
         }
