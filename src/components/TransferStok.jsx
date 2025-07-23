@@ -361,3 +361,4 @@ function TransferStok({ userProfile }) {
   )
 }
 
+export default TransferStok
