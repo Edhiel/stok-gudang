@@ -46,44 +46,47 @@ function TransferStok({ userProfile }) {
     const depotsPromise = get(ref(db, 'depots'));
     const masterItemsPromise = get(ref(db, 'master_items'));
 
-    Promise.all([depotsPromise, masterItemsPromise]).then(([depotsSnapshot, masterItemsSnapshot]) => {
-      const depotsData = depotsSnapshot.val() || {};
-      const depotList = Object.keys(depotsData).map(key => ({
-        id: key,
-        name: depotsData[key].info?.name || key, // Fallback ke ID jika name tidak ada
-      }));
-      setAllDepots(depotList);
+    Promise.all([depotsPromise, masterItemsPromise])
+      .then(([depotsSnapshot, masterItemsSnapshot]) => {
+        const depotsData = depotsSnapshot.val() || {};
+        const depotList = Object.keys(depotsData).map(key => ({
+          id: key,
+          name: depotsData[key].info?.name || key, // Fallback ke ID jika name tidak ada
+        }));
+        console.log('All Depots:', depotList); // Debugging
+        setAllDepots(depotList);
 
-      const masterData = masterItemsSnapshot.val() || {};
-      setMasterItems(masterData);
+        const masterData = masterItemsSnapshot.val() || {};
+        setMasterItems(masterData);
 
-      const stockRef = ref(db, `depots/${userProfile.depotId}/stock`);
-      onValue(stockRef, (stockSnapshot) => {
-        const stockData = stockSnapshot.val() || {};
-        const available = Object.keys(stockData)
-          .filter(itemId => (stockData[itemId].totalStockInPcs || 0) > 0)
-          .map(itemId => ({ id: itemId, ...masterData[itemId], totalStockInPcs: stockData[itemId].totalStockInPcs }));
-        setAvailableItems(available);
+        const stockRef = ref(db, `depots/${userProfile.depotId}/stock`);
+        onValue(stockRef, (stockSnapshot) => {
+          const stockData = stockSnapshot.val() || {};
+          const available = Object.keys(stockData)
+            .filter(itemId => (stockData[itemId].totalStockInPcs || 0) > 0)
+            .map(itemId => ({ id: itemId, ...masterData[itemId], totalStockInPcs: stockData[itemId].totalStockInPcs }));
+          setAvailableItems(available);
+        });
+
+        const outgoingQuery = query(ref(db, 'stock_transfers'), orderByChild('fromDepotId'), equalTo(userProfile.depotId));
+        onValue(outgoingQuery, (snapshot) => {
+          const data = snapshot.val() || {};
+          setOutgoingTransfers(Object.keys(data).map(key => ({ id: key, ...data[key] })).sort((a, b) => b.createdAt - a.createdAt));
+        });
+
+        const incomingQuery = query(ref(db, 'stock_transfers'), orderByChild('toDepotId'), equalTo(userProfile.depotId));
+        onValue(incomingQuery, (snapshot) => {
+          const data = snapshot.val() || {};
+          setIncomingTransfers(Object.keys(data).map(key => ({ id: key, ...data[key] })).sort((a, b) => b.createdAt - a.createdAt));
+        });
+
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error('Error fetching data:', err);
+        toast.error('Gagal memuat data depo.');
+        setLoading(false);
       });
-
-      const outgoingQuery = query(ref(db, 'stock_transfers'), orderByChild('fromDepotId'), equalTo(userProfile.depotId));
-      onValue(outgoingQuery, (snapshot) => {
-        const data = snapshot.val() || {};
-        setOutgoingTransfers(Object.keys(data).map(key => ({ id: key, ...data[key] })).sort((a, b) => b.createdAt - a.createdAt));
-      });
-
-      const incomingQuery = query(ref(db, 'stock_transfers'), orderByChild('toDepotId'), equalTo(userProfile.depotId));
-      onValue(incomingQuery, (snapshot) => {
-        const data = snapshot.val() || {};
-        setIncomingTransfers(Object.keys(data).map(key => ({ id: key, ...data[key] })).sort((a, b) => b.createdAt - a.createdAt));
-      });
-
-      setLoading(false);
-    }).catch(err => {
-      console.error('Error fetching data:', err);
-      toast.error('Gagal memuat data depo.');
-      setLoading(false);
-    });
   }, [userProfile]);
 
   const handleBarcodeDetected = (scannedBarcode) => {
@@ -189,6 +192,9 @@ function TransferStok({ userProfile }) {
     : [];
 
   const destinationDepots = allDepots.filter(depot => depot.id.toUpperCase() !== userProfile.depotId.toUpperCase());
+  console.log('User Depot ID:', userProfile.depotId); // Debugging
+  console.log('Destination Depots:', destinationDepots); // Debugging
+
   if (loading) {
     return (
       <div className="p-8 text-center">
