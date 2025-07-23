@@ -120,12 +120,8 @@ function Dashboard({ user, setPage }) {
   const [isMenuModalOpen, setIsMenuModalOpen] = useState(false);
   const [modalContent, setModalContent] = useState({ title: '', items: [] });
 
-  // useEffect untuk mengambil data...
   useEffect(() => {
-    if (!user) {
-      setLoading(false);
-      return;
-    }
+    if (!user) { setLoading(false); return; }
     // Logika untuk mengambil data statistik, stok kritis, dan chart bisa dimasukkan kembali ke sini
     setLoading(false);
   }, [user]);
@@ -169,7 +165,7 @@ function Dashboard({ user, setPage }) {
   ].filter(item => typeof item.show === 'undefined' || item.show === true).map(item => ({...item, category: 'laporan'}));
 
   const menuAdmin = [
-    { name: 'Pengguna', icon: <Ikon.Pengguna />, page: 'kelola-pengguna' },
+    { name: 'Pengguna', icon: <Ikon.User />, page: 'kelola-pengguna' }, // <-- PERBAIKAN DI SINI
     { name: 'Depo', icon: <Ikon.Depo />, page: 'kelola-depo' },
     { name: 'Alokasi Supplier', icon: <Ikon.Alokasi />, page: 'alokasi-supplier' },
     { name: 'Backup & Restore', icon: <Ikon.BackupRestore />, page: 'backup-restore' },
@@ -180,7 +176,7 @@ function Dashboard({ user, setPage }) {
     { title: "Aktivitas Gudang", icon: <Ikon.StokMasuk />, items: menuGudang, show: canDoGudangTransaction },
     { title: "Master Data", icon: <Ikon.MasterBarang />, items: menuMaster, show: canAccessMasterData },
     { title: "Laporan & Analitik", icon: <Ikon.Laporan />, items: menuLaporan, show: canViewLaporan },
-    { title: "Konfigurasi & Admin", icon: <Ikon.Pengguna />, items: menuAdmin, show: isSuperAdmin }
+    { title: "Konfigurasi & Admin", icon: <Ikon.User />, items: menuAdmin, show: isSuperAdmin } // <-- PERBAIKAN DI SINI
   ].filter(menu => menu.show);
   
   const handleOpenMenu = (menu) => {
