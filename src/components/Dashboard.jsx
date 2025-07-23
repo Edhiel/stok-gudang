@@ -7,7 +7,8 @@ import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Toolti
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
-// --- KOMPONEN KECIL (TIDAK BERUBAH) ---
+// --- KOMPONEN KECIL (Helper Components) ---
+// Komponen-komponen ini tidak bergantung pada data 'user', jadi aman diletakkan di luar.
 const StatCard = ({ title, value, icon, color }) => (
   <div className={`card bg-white shadow-md p-4 flex flex-row items-center`}>
     <div className={`text-3xl p-3 rounded-lg ${color}`}>{icon}</div>
@@ -26,10 +27,7 @@ const LowStockAlertItem = ({ item, onClick }) => (
         <div className="font-bold text-red-500 text-sm">Stok Kritis</div>
     </div>
 );
-
-// --- KOMPONEN BARU: MODAL UNTUK MENAMPILKAN SUB-MENU ---
 const MenuModal = ({ title, items, setPage, onClose, colorSchemes }) => {
-    // Komponen kecil untuk ikon di dalam modal
     const SubMenuCard = ({ name, icon, onClick, category }) => {
         const colorClass = colorSchemes[category] || 'text-gray-600';
         const coloredIcon = React.cloneElement(icon, { className: `h-10 w-10 ${colorClass}` });
@@ -40,7 +38,6 @@ const MenuModal = ({ title, items, setPage, onClose, colorSchemes }) => {
             </button>
         );
     };
-
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
             <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6">
@@ -54,10 +51,7 @@ const MenuModal = ({ title, items, setPage, onClose, colorSchemes }) => {
                             key={item.page}
                             name={item.name}
                             icon={item.icon}
-                            onClick={() => {
-                                setPage(item.page);
-                                onClose(); // Tutup modal setelah diklik
-                            }}
+                            onClick={() => { setPage(item.page); onClose(); }}
                             category={item.category}
                         />
                     ))}
@@ -67,14 +61,14 @@ const MenuModal = ({ title, items, setPage, onClose, colorSchemes }) => {
     );
 };
 
+// --- Objek Ikon & Skema Warna (Bisa di luar karena tidak bergantung 'user') ---
+const Ikon = { /* ... Salin SEMUA ikon SVG Anda dari file sebelumnya ke sini ... */ };
+const colorSchemes = { /* ... Salin skema warna Anda dari file sebelumnya ke sini ... */ };
 
-// --- IKON & SKEMA WARNA (TIDAK BERUBAH) ---
-const Ikon = { /* ...isi semua ikon SVG Anda di sini, sama seperti sebelumnya... */ };
-const colorSchemes = { /* ...isi skema warna Anda di sini, sama seperti sebelumnya... */ };
 
-
+// --- KOMPONEN UTAMA DASHBOARD ---
 function Dashboard({ user, setPage }) {
-  // --- SEMUA STATE DAN LOGIKA useEffect (TIDAK BERUBAH) ---
+  // State
   const [stats, setStats] = useState({ itemCount: 0, supplierCount: 0, pendingInvoices: 0 });
   const [lowStockItems, setLowStockItems] = useState([]);
   const [chartData, setChartData] = useState(null);
@@ -82,24 +76,59 @@ function Dashboard({ user, setPage }) {
   const [isMenuModalOpen, setIsMenuModalOpen] = useState(false);
   const [modalContent, setModalContent] = useState({ title: '', items: [] });
 
+  // useEffect untuk mengambil data...
   useEffect(() => {
     // ...semua logika useEffect Anda untuk mengambil data tetap di sini...
     setLoading(false);
   }, [user]);
 
-  const chartOptions = { /* ...opsi chart tidak berubah... */ };
+  const chartOptions = { responsive: true, plugins: { legend: { position: 'top' }, title: { display: true, text: 'Aktivitas Gudang 7 Hari Terakhir' } } };
 
-  // --- KUMPULAN HAK AKSES & DEFINISI MENU (TIDAK BERUBAH) ---
+  // ==================================================================
+  // === BLOK YANG DIPINDAHKAN - SEKARANG BERADA DI DALAM KOMPONEN ===
+  // ==================================================================
   const isSuperAdmin = user.role === 'Super Admin';
-  // ...definisi hak akses lainnya...
-  const menuOrderan = [ /* ...definisi menuOrderan... */ ].filter(item => item.show).map(item => ({...item, category: 'orderan'}));
-  const menuGudang = [ /* ...definisi menuGudang... */ ].map(item => ({...item, category: 'operasional'}));
-  const menuMaster = [ /* ...definisi menuMaster... */ ].map(item => ({...item, category: 'master'}));
-  const menuLaporan = [ /* ...definisi menuLaporan... */ ].map(item => ({...item, category: 'laporan'}));
-  const menuAdmin = [ /* ...definisi menuAdmin... */ ].map(item => ({...item, category: 'admin'}));
+  const isAdminPusat = user.role === 'Admin Pusat';
+  const isSales = user.role === 'Sales Depo';
+  const canDoGudangTransaction = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang', 'Staf Gudang'].includes(user.role);
+  const canAccessMasterData = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(user.role);
+  const canViewLaporan = ['Super Admin', 'Admin Pusat', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(user.role);
+  const canProcessOrder = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(user.role);
 
+  const menuOrderan = [
+    { name: 'Buat Order', icon: <Ikon.BuatOrder />, page: 'buat-order', show: isSales || isSuperAdmin },
+    { name: 'Proses Order', icon: <Ikon.ProsesOrder />, page: 'proses-order', show: canProcessOrder },
+    { name: 'Faktur Tertunda', icon: <Ikon.FakturTertunda />, page: 'faktur-tertunda', show: true },
+    { name: 'Proses Faktur', icon: <Ikon.ProsesFaktur />, page: 'proses-faktur-tertunda', show: canProcessOrder },
+  ].filter(item => item.show).map(item => ({...item, category: 'orderan'}));
   
-  // --- KUMPULAN MENU UTAMA UNTUK TAMPILAN RINGKAS ---
+  const menuGudang = [
+    { name: 'Stok Masuk', icon: <Ikon.StokMasuk />, page: 'stok-masuk' },
+    { name: 'Stok Keluar', icon: <Ikon.StokKeluar />, page: 'stok-keluar' },
+    { name: 'Pengeluaran (Order)', icon: <Ikon.PengeluaranBarang />, page: 'pengeluaran-barang' },
+    { name: 'Transfer Stok', icon: <Ikon.TransferStok />, page: 'transfer-stok' },
+    { name: 'Manajemen Retur', icon: <Ikon.Retur />, page: 'manajemen-retur' },
+    { name: 'Stock Opname', icon: <Ikon.StockOpname />, page: 'stock-opname' },
+  ].map(item => ({...item, category: 'operasional'}));
+  
+  const menuMaster = [
+    { name: 'Master Barang', icon: <Ikon.MasterBarang />, page: 'kelola-master-barang' },
+    { name: 'Supplier', icon: <Ikon.Supplier />, page: 'kelola-supplier' },
+    { name: 'Kategori', icon: <Ikon.Kategori />, page: 'kelola-kategori' }
+  ].map(item => ({...item, category: 'master'}));
+
+  const menuLaporan = [
+    { name: 'Laporan Depo', icon: <Ikon.Laporan />, page: 'laporan' },
+    { name: 'Dasbor Pusat', icon: <Ikon.KantorPusat />, page: 'kantor-pusat', show: isSuperAdmin || isAdminPusat }
+  ].filter(item => item.show !== false).map(item => ({...item, category: 'laporan'}));
+
+  const menuAdmin = [
+    { name: 'Pengguna', icon: <Ikon.Pengguna />, page: 'kelola-pengguna' },
+    { name: 'Depo', icon: <Ikon.Depo />, page: 'kelola-depo' },
+    { name: 'Alokasi Supplier', icon: <Ikon.Alokasi />, page: 'alokasi-supplier' },
+    { name: 'Backup & Restore', icon: <Ikon.BackupRestore />, page: 'backup-restore' },
+  ].map(item => ({...item, category: 'admin'}));
+
   const mainMenu = [
     { title: "Orderan & Faktur", icon: <Ikon.ProsesOrder />, items: menuOrderan, show: menuOrderan.length > 0 },
     { title: "Aktivitas Gudang", icon: <Ikon.StokMasuk />, items: menuGudang, show: canDoGudangTransaction },
@@ -107,17 +136,32 @@ function Dashboard({ user, setPage }) {
     { title: "Laporan & Analitik", icon: <Ikon.Laporan />, items: menuLaporan, show: canViewLaporan },
     { title: "Konfigurasi & Admin", icon: <Ikon.Pengguna />, items: menuAdmin, show: isSuperAdmin }
   ].filter(menu => menu.show);
-
+  // ==================================================================
+  // === AKHIR DARI BLOK YANG DIPINDAHKAN ===
+  // ==================================================================
 
   const handleOpenMenu = (menu) => {
     setModalContent({ title: menu.title, items: menu.items });
     setIsMenuModalOpen(true);
   };
-
+  
+  // Komponen kecil untuk ikon menu utama yang besar
+  const MainMenuCard = ({ name, icon, onClick, category }) => {
+    const colorClass = colorSchemes[category] || 'text-gray-600';
+    const coloredIcon = React.cloneElement(icon, { className: `h-8 w-8 sm:h-12 sm:w-12 ${colorClass}` });
+    return (
+        <button
+        onClick={onClick}
+        className="flex flex-col items-center justify-center p-4 bg-white rounded-lg shadow-md hover:shadow-lg transition-all duration-200 aspect-square"
+        >
+        {coloredIcon}
+        <span className="mt-2 text-sm text-center font-medium text-gray-700">{name}</span>
+        </button>
+    );
+  };
 
   return (
     <>
-      {/* --- Tampilan Modal (akan muncul saat state-nya aktif) --- */}
       {isMenuModalOpen && (
         <MenuModal
           title={modalContent.title}
@@ -128,29 +172,25 @@ function Dashboard({ user, setPage }) {
         />
       )}
 
-      {/* --- Tampilan Dashboard Utama --- */}
       <div className="p-4 sm:p-6 bg-gray-100 min-h-screen">
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-6">Selamat Datang, {user.fullName}!</h1>
         
-        {/* --- Bagian Widget & Grafik (Sama seperti sebelumnya) --- */}
         {!isSales && (
             <>
-                {/* ...kode widget statistik dan grafik Anda di sini... */}
+              {/* Widget Statistik & Grafik */}
             </>
         )}
         
-        {/* --- TAMPILAN MENU UTAMA YANG RINGKAS --- */}
         <div className="mt-10">
           <h2 className="text-2xl font-bold text-gray-800 px-4 mb-4">Menu Utama</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 px-4">
             {mainMenu.map(menu => (
-              <MenuCard
+              <MainMenuCard
                 key={menu.title}
                 name={menu.title}
                 icon={menu.icon}
                 onClick={() => handleOpenMenu(menu)}
-                category={menu.items[0].category} // Ambil kategori dari item pertama
-                colorSchemes={colorSchemes}
+                category={menu.items[0]?.category || 'admin'} // Ambil kategori dari item pertama
               />
             ))}
           </div>
