@@ -193,10 +193,14 @@ function TransferStok({ userProfile }) {
     ? availableItems.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
     : [];
 
-  // Filter daftar depo untuk dropdown agar tidak menampilkan depo sendiri
   const destinationDepots = allDepots.filter(depot => depot.id.toUpperCase() !== userProfile.depotId.toUpperCase());
   if (loading) {
-    return <div className="p-8 text-center"><span className="loading loading-lg"></span><p>Loading barang & depo...</p></div>;
+    return (
+      <div className="p-8 text-center">
+        <span className="loading loading-lg"></span>
+        <p>Loading barang & depo...</p>
+      </div>
+    );
   }
 
   return (
