@@ -43,22 +43,20 @@ function TransferStok({ userProfile }) {
     }
     setLoading(true);
 
-    // Kumpulkan semua promise pengambilan data
     const depotsPromise = get(ref(db, 'depots'));
     const masterItemsPromise = get(ref(db, 'master_items'));
 
     Promise.all([depotsPromise, masterItemsPromise]).then(([depotsSnapshot, masterItemsSnapshot]) => {
       const depotsData = depotsSnapshot.val() || {};
-      const depotList = Object.keys(depotsData).map(key => ({ 
-          id: key, 
-          name: depotsData[key].info?.name || key 
+      const depotList = Object.keys(depotsData).map(key => ({
+        id: key,
+        name: depotsData[key].info?.name || key, // Fallback ke ID jika name tidak ada
       }));
       setAllDepots(depotList);
 
       const masterData = masterItemsSnapshot.val() || {};
       setMasterItems(masterData);
 
-      // Listener untuk data stok (real-time)
       const stockRef = ref(db, `depots/${userProfile.depotId}/stock`);
       onValue(stockRef, (stockSnapshot) => {
         const stockData = stockSnapshot.val() || {};
@@ -68,23 +66,24 @@ function TransferStok({ userProfile }) {
         setAvailableItems(available);
       });
 
-      // Listener untuk transfer keluar
       const outgoingQuery = query(ref(db, 'stock_transfers'), orderByChild('fromDepotId'), equalTo(userProfile.depotId));
       onValue(outgoingQuery, (snapshot) => {
-          const data = snapshot.val() || {};
-          setOutgoingTransfers(Object.keys(data).map(key => ({ id: key, ...data[key] })).sort((a,b) => b.createdAt - a.createdAt));
+        const data = snapshot.val() || {};
+        setOutgoingTransfers(Object.keys(data).map(key => ({ id: key, ...data[key] })).sort((a, b) => b.createdAt - a.createdAt));
       });
 
-      // Listener untuk transfer masuk
       const incomingQuery = query(ref(db, 'stock_transfers'), orderByChild('toDepotId'), equalTo(userProfile.depotId));
       onValue(incomingQuery, (snapshot) => {
-          const data = snapshot.val() || {};
-          setIncomingTransfers(Object.keys(data).map(key => ({ id: key, ...data[key] })).sort((a,b) => b.createdAt - a.createdAt));
+        const data = snapshot.val() || {};
+        setIncomingTransfers(Object.keys(data).map(key => ({ id: key, ...data[key] })).sort((a, b) => b.createdAt - a.createdAt));
       });
 
-      setLoading(false); // Hentikan loading SETELAH semua data siap
+      setLoading(false);
+    }).catch(err => {
+      console.error('Error fetching data:', err);
+      toast.error('Gagal memuat data depo.');
+      setLoading(false);
     });
-
   }, [userProfile]);
 
   const handleBarcodeDetected = (scannedBarcode) => {
@@ -227,7 +226,27 @@ function TransferStok({ userProfile }) {
               <div className="flex justify-end mb-4"><button className="btn btn-info" onClick={handlePrint} disabled={transferItems.length === 0}>Cetak Surat Jalan</button></div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 p-4 border rounded-lg">
                   <div className="form-control"><label className="label"><span className="label-text font-bold">No. Surat Jalan</span></label><input type="text" value={suratJalan} onChange={(e) => setSuratJalan(e.target.value)} className="input input-bordered" /></div>
-                  <div className="form-control"><label className="label"><span className="label-text font-bold">Depo Tujuan</span></label><select value={destinationDepot} onChange={(e) => setDestinationDepot(e.target.value)} className="select select-bordered"><option value="">Pilih Depo Tujuan</option>{destinationDepots.map(depot => <option key={depot.id} value={depot.id}>{depot.name}</option>)}</select></div>
+                  <div className="form-control">
+                    <label className="label">
+                      <span className="label-text font-bold">Depo Tujuan</span>
+                    </label>
+                    <select
+                      value={destinationDepot}
+                      onChange={(e) => setDestinationDepot(e.target.value)}
+                      className="select select-bordered"
+                    >
+                      <option value="">Pilih Depo Tujuan</option>
+                      {destinationDepots.length > 0 ? (
+                        destinationDepots.map(depot => (
+                          <option key={depot.id} value={depot.id}>
+                            {depot.name}
+                          </option>
+                        ))
+                      ) : (
+                        <option disabled>Tidak ada depo tujuan tersedia</option>
+                      )}
+                    </select>
+                  </div>
               </div>
               <div className="divider">Detail Barang</div>
               <div className="p-4 border rounded-lg bg-base-200">
