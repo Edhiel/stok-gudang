@@ -4,6 +4,7 @@ import { db } from '../firebaseConfig';
 import CameraBarcodeScanner from './CameraBarcodeScanner';
 import toast from 'react-hot-toast';
 
+// --- TIDAK ADA PERUBAHAN DI FUNGSI INI ---
 const formatToDPP = (totalPcs, conversions) => {
   if (!totalPcs || !conversions) return '0.0.0';
   const dosInPcs = conversions.Dos?.inPcs || (conversions.Pack?.inPcs || 1);
@@ -14,11 +15,7 @@ const formatToDPP = (totalPcs, conversions) => {
 function TransferStok({ userProfile }) {
   const [activeTab, setActiveTab] = useState('buat');
   const [loading, setLoading] = useState(true);
-
-  // State untuk data yang dibutuhkan di semua tab
   const [allDepots, setAllDepots] = useState([]);
-
-  // State untuk Tab 1: Buat Transfer
   const [availableItems, setAvailableItems] = useState([]);
   const [suratJalan, setSuratJalan] = useState('');
   const [destinationDepot, setDestinationDepot] = useState('');
@@ -30,32 +27,33 @@ function TransferStok({ userProfile }) {
   const [pcsQty, setPcsQty] = useState(0);
   const [transferItems, setTransferItems] = useState([]);
   const [showScanner, setShowScanner] = useState(false);
-  
-  // State untuk Tab 2 & 3
   const [outgoingTransfers, setOutgoingTransfers] = useState([]);
   const [incomingTransfers, setIncomingTransfers] = useState([]);
 
-  // --- PERBAIKAN ---
-  // Efek untuk mengambil data global yang tidak bergantung pada user (seperti daftar semua depo)
-  // Ini hanya berjalan sekali saat komponen dimuat.
+  // --- DITAMBAHKAN DEBUG LOG ---
   useEffect(() => {
+    console.log("[DEBUG] 1. [EFFECT] Mengambil daftar semua depo...");
     const depotsRef = ref(db, 'depots');
     get(depotsRef).then((snapshot) => {
       if (snapshot.exists()) {
         const depotsData = snapshot.val();
+        console.log("[DEBUG] 2. [FETCH SUCCESS] Data mentah depo dari Firebase:", depotsData);
         const depotList = Object.keys(depotsData).map(key => ({
           id: key,
           name: depotsData[key].info?.name || key
         }));
+        console.log("[DEBUG] 3. [STATE SET] Daftar depo yang akan disimpan:", depotList);
         setAllDepots(depotList);
+      } else {
+        console.warn("[DEBUG] WARNING: Snapshot 'depots' tidak ada di database.");
+        setAllDepots([]); // Pastikan state kosong jika tidak ada data
       }
     }).catch(err => {
-      console.error("Gagal mengambil daftar depo:", err);
-      toast.error("Gagal memuat daftar depo.");
+      console.error("[DEBUG] 5. [FETCH ERROR] Gagal mengambil depo:", err);
+      toast.error("Gagal memuat daftar depo. Cek console (F12).");
     });
-  }, []); // <-- Array dependensi kosong berarti efek ini hanya berjalan sekali
+  }, []);
 
-  // Efek untuk mengambil data yang bergantung pada userProfile
   useEffect(() => {
     if (!userProfile || !userProfile.depotId) {
         setLoading(false);
@@ -65,7 +63,6 @@ function TransferStok({ userProfile }) {
 
     const masterItemsPromise = get(ref(db, 'master_items'));
 
-    // Sekarang Promise.all tidak perlu lagi mengambil daftar depo
     Promise.all([masterItemsPromise]).then(([masterItemsSnapshot]) => {
       const masterData = masterItemsSnapshot.val() || {};
       
@@ -92,24 +89,40 @@ function TransferStok({ userProfile }) {
 
       setLoading(false);
     }).catch(err => {
-        console.error("Gagal mengambil data awal:", err);
+        console.error("Gagal mengambil data master atau data lainnya:", err);
         setLoading(false);
     });
 
   }, [userProfile]);
 
+  const filteredItems = searchTerm.length > 0 
+    ? availableItems.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    : [];
+
+  const destinationDepots = userProfile?.depotId
+    ? allDepots.filter(depot => depot.id.toUpperCase() !== userProfile.depotId.toUpperCase())
+    : [];
+  
+  // --- DITAMBAHKAN DEBUG LOG PALING PENTING ---
+  console.log("[DEBUG] 4. [RENDER] Memeriksa state sebelum render...", {
+    waktu: new Date().toLocaleTimeString(),
+    allDepots: allDepots,
+    userDepotId: userProfile?.depotId,
+    destinationDepots: destinationDepots,
+    isLoading: loading
+  });
+
+  // --- TIDAK ADA PERUBAHAN PADA HANDLER ATAU TAMPILAN (RETURN) ---
   const handleBarcodeDetected = (scannedBarcode) => {
     const foundItem = availableItems.find(item => item.barcodePcs === scannedBarcode || item.barcodeDos === scannedBarcode);
     if (foundItem) handleSelectItem(foundItem); else toast.error("Barang tidak ditemukan atau stok kosong.");
     setShowScanner(false);
   };
-
   const handleSelectItem = (item) => {
     setSelectedItem(item);
     setSearchTerm(item.name);
     setItemStock(item.totalStockInPcs);
   };
-
   const handleAddItemToList = () => {
     if (!selectedItem) { toast.error("Pilih barang dulu."); return; }
     const totalPcs = (Number(dosQty) * (selectedItem.conversions.Dos?.inPcs || 1)) + (Number(packQty) * (selectedItem.conversions.Pack?.inPcs || 1)) + (Number(pcsQty));
@@ -121,11 +134,9 @@ function TransferStok({ userProfile }) {
     setTransferItems([...transferItems, { id: selectedItem.id, name: selectedItem.name, quantityInPcs: totalPcs, displayQty: `${dosQty}.${packQty}.${pcsQty}`, conversions: selectedItem.conversions }]);
     setSelectedItem(null); setSearchTerm(''); setDosQty(0); setPackQty(0); setPcsQty(0);
   };
-
   const handleRemoveFromList = (indexToRemove) => {
     setTransferItems(transferItems.filter((_, index) => index !== indexToRemove));
   };
-  
   const handleSaveDraft = async () => {
     if (!suratJalan || !destinationDepot || transferItems.length === 0) {
       toast.error("No. Surat Jalan, Depo Tujuan, dan minimal 1 barang wajib diisi.");
@@ -159,7 +170,6 @@ function TransferStok({ userProfile }) {
       console.error(err);
     }
   };
-
   const handlePrint = () => {
     if (transferItems.length === 0) {
       toast.error("Tidak ada barang dalam daftar untuk dicetak.");
@@ -167,7 +177,6 @@ function TransferStok({ userProfile }) {
     }
     window.print();
   };
-  
   const handleConfirmReceipt = async (transfer) => {
     if (!window.confirm(`Konfirmasi penerimaan barang dari ${transfer.fromDepotId} dengan No. SJ ${transfer.suratJalan}? Stok akan diperbarui.`)) return;
     try {
@@ -195,15 +204,6 @@ function TransferStok({ userProfile }) {
         console.error(err);
     }
   };
-
-  const filteredItems = searchTerm.length > 0 
-    ? availableItems.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
-    : [];
-
-  // Kalkulasi daftar depo tujuan. Ini sekarang lebih stabil karena `allDepots` tidak sering berubah.
-  const destinationDepots = userProfile?.depotId
-  ? allDepots.filter(depot => depot.id.toUpperCase() !== userProfile.depotId.toUpperCase())
-  : [];
 
   if (loading) {
     return (
