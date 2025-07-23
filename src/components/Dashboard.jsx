@@ -126,15 +126,13 @@ function Dashboard({ user, setPage }) {
       setLoading(false);
       return;
     }
-    // Di sini Anda bisa mengisi kembali logika untuk mengambil data statistik,
-    // stok kritis, dan data chart seperti di versi sebelumnya.
-    // Untuk saat ini, kita set loading ke false agar tidak loading terus.
+    // Logika untuk mengambil data statistik, stok kritis, dan chart bisa dimasukkan kembali ke sini
     setLoading(false);
   }, [user]);
 
   const chartOptions = { responsive: true, plugins: { legend: { position: 'top' }, title: { display: true, text: 'Aktivitas Gudang 7 Hari Terakhir' } } };
 
-  // Blok definisi hak akses & menu dipindahkan ke dalam komponen
+  // Blok definisi hak akses & menu
   const isSuperAdmin = user.role === 'Super Admin';
   const isAdminPusat = user.role === 'Admin Pusat';
   const isSales = user.role === 'Sales Depo';
@@ -168,7 +166,7 @@ function Dashboard({ user, setPage }) {
   const menuLaporan = [
     { name: 'Laporan Depo', icon: <Ikon.Laporan />, page: 'laporan' },
     { name: 'Dasbor Pusat', icon: <Ikon.KantorPusat />, page: 'kantor-pusat', show: isSuperAdmin || isAdminPusat }
-  ].filter(item => item.show !== false).map(item => ({...item, category: 'laporan'}));
+  ].filter(item => typeof item.show === 'undefined' || item.show === true).map(item => ({...item, category: 'laporan'}));
 
   const menuAdmin = [
     { name: 'Pengguna', icon: <Ikon.Pengguna />, page: 'kelola-pengguna' },
