@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ref, onValue, get, push, serverTimestamp, runTransaction, update, query, orderByChild, equalTo } from 'firebase/database';
 import { db } from '../firebaseConfig';
 import CameraBarcodeScanner from './CameraBarcodeScanner';
@@ -14,9 +14,9 @@ const formatToDPP = (totalPcs, conversions) => {
 function TransferStok({ userProfile }) {
   const [activeTab, setActiveTab] = useState('buat');
   const [loading, setLoading] = useState(true);
-
-  // State untuk Tab 1: Buat Transfer
   const [allDepots, setAllDepots] = useState([]);
+
+  // State untuk Tab 1 (Buat Transfer)
   const [availableItems, setAvailableItems] = useState([]);
   const [suratJalan, setSuratJalan] = useState('');
   const [destinationDepot, setDestinationDepot] = useState('');
@@ -33,21 +33,20 @@ function TransferStok({ userProfile }) {
   const [outgoingTransfers, setOutgoingTransfers] = useState([]);
   const [incomingTransfers, setIncomingTransfers] = useState([]);
 
+  // Mengambil data awal yang dibutuhkan semua tab
   useEffect(() => {
     if (!userProfile || !userProfile.depotId) return;
 
-    // Ambil daftar semua depo
     const depotsRef = ref(db, 'depots');
     onValue(depotsRef, (snapshot) => {
       const data = snapshot.val() || {};
       const depotList = Object.keys(data).map(key => ({ 
           id: key, 
-          name: data[key].info.name 
+          name: data[key].info?.name || key 
       }));
       setAllDepots(depotList);
     });
 
-    // Ambil daftar barang yang punya stok di depo saat ini (untuk Tab 1)
     const masterItemsRef = ref(db, 'master_items');
     get(masterItemsRef).then((masterSnapshot) => {
       const masterItems = masterSnapshot.val() || {};
@@ -58,11 +57,9 @@ function TransferStok({ userProfile }) {
           .filter(itemId => (stockData[itemId].totalStockInPcs || 0) > 0)
           .map(itemId => ({ id: itemId, ...masterItems[itemId], totalStockInPcs: stockData[itemId].totalStockInPcs }));
         setAvailableItems(available);
-        setLoading(false);
       });
     });
 
-    // Ambil data Pengiriman Keluar (untuk Tab 2)
     const outgoingQuery = query(ref(db, 'stock_transfers'), orderByChild('fromDepotId'), equalTo(userProfile.depotId));
     onValue(outgoingQuery, (snapshot) => {
         const data = snapshot.val() || {};
@@ -70,7 +67,6 @@ function TransferStok({ userProfile }) {
         setOutgoingTransfers(transferList.sort((a,b) => b.createdAt - a.createdAt));
     });
 
-    // Ambil data Penerimaan Masuk (untuk Tab 3)
     const incomingQuery = query(ref(db, 'stock_transfers'), orderByChild('toDepotId'), equalTo(userProfile.depotId));
     onValue(incomingQuery, (snapshot) => {
         const data = snapshot.val() || {};
@@ -78,6 +74,7 @@ function TransferStok({ userProfile }) {
         setIncomingTransfers(transferList.sort((a,b) => b.createdAt - a.createdAt));
     });
 
+    setLoading(false);
   }, [userProfile]);
 
   const handleBarcodeDetected = (scannedBarcode) => {
@@ -186,7 +183,6 @@ function TransferStok({ userProfile }) {
     ? availableItems.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
     : [];
 
-  // Filter daftar depo untuk dropdown agar tidak menampilkan depo sendiri
   const destinationDepots = allDepots.filter(depot => depot.id.toUpperCase() !== userProfile.depotId.toUpperCase());
   return (
     <div className="p-8">
@@ -194,9 +190,15 @@ function TransferStok({ userProfile }) {
       <h1 className="text-3xl font-bold mb-6">Transfer Stok Antar Depo</h1>
       
       <div role="tablist" className="tabs tabs-lifted">
-        <a role="tab" className={`tab ${activeTab === 'buat' ? 'tab-active' : ''}`} onClick={() => setActiveTab('buat')}>Buat Transfer Baru</a>
-        <a role="tab" className={`tab ${activeTab === 'keluar' ? 'tab-active' : ''}`} onClick={() => setActiveTab('keluar')}>Pengiriman Keluar</a>
-        <a role="tab" className={`tab ${activeTab === 'masuk' ? 'tab-active' : ''}`} onClick={() => setActiveTab('masuk')}>Penerimaan Masuk</a>
+        <a role="tab" className={`tab ${activeTab === 'buat' ? 'tab-active' : ''}`} onClick={() => setActiveTab('buat')}>
+          Buat Transfer Baru
+        </a>
+        <a role="tab" className={`tab ${activeTab === 'keluar' ? 'tab-active' : ''}`} onClick={() => setActiveTab('keluar')}>
+          Pengiriman Keluar
+        </a>
+        <a role="tab" className={`tab ${activeTab === 'masuk' ? 'tab-active' : ''}`} onClick={() => setActiveTab('masuk')}>
+          Penerimaan Masuk
+        </a>
       </div>
 
       <div className="bg-white p-6 rounded-b-lg rounded-tr-lg shadow-lg min-h-96">
