@@ -203,7 +203,6 @@ const TabReturRusak = ({ userProfile }) => {
     </>
   );
 };
-
 const TabKirimPusat = ({ userProfile }) => {
   const [damagedItems, setDamagedItems] = useState([]);
   const [filteredItems, setFilteredItems] = useState([]);
@@ -308,7 +307,28 @@ const TabKirimPusat = ({ userProfile }) => {
 
   return (
     <div className="p-4 space-y-4 printable-area">
-      <h3 className="text-xl font-semibold">Rekapitulasi Stok Rusak</h3>
+      
+      {/* --- KOP SURAT DINAMIS (HANYA MUNCUL SAAT PRINT) --- */}
+      <div className="hidden print:block mb-4">
+        <div className="flex items-center justify-center mb-4 border-b-2 border-black pb-2">
+            <img src="/logo_bulet_mhm.gif" alt="Logo Perusahaan" className="h-20 w-20 mr-4" />
+            <div>
+                <h1 className="text-2xl font-bold">PT. Mahameru Mitra Makmur</h1>
+                <p className="text-center">Depo: {userProfile.depotId}</p>
+            </div>
+        </div>
+        {processAction === 'kirim' ? (
+            <h2 className="text-xl font-semibold mt-4 text-center">SURAT JALAN PENGIRIMAN BARANG RUSAK (BS)</h2>
+        ) : (
+            <h2 className="text-xl font-semibold mt-4 text-center">BERITA ACARA PEMUSNAHAN BARANG RUSAK (BS)</h2>
+        )}
+        <div className="flex justify-between text-sm my-4">
+            <div><p><strong>No. Dokumen:</strong> {documentNumber || '(Mohon isi di form)'}</p></div>
+            <div><p><strong>Tanggal:</strong> {new Date().toLocaleDateString('id-ID')}</p></div>
+        </div>
+      </div>
+
+      <h3 className="text-xl font-semibold print:hidden">Rekapitulasi Stok Rusak</h3>
       <div className="p-4 border rounded-lg bg-base-200 mb-4 space-y-4 print:hidden">
         <div className="flex flex-wrap gap-4 items-end">
           <div className="form-control">
@@ -335,17 +355,34 @@ const TabKirimPusat = ({ userProfile }) => {
             </tbody>
         </table>
       </div>
+
+      {/* --- BLOK TANDA TANGAN DINAMIS (HANYA MUNCUL SAAT PRINT) --- */}
+      <div className="hidden print:block flex justify-around mt-16 pt-8 text-center text-sm">
+        <div>
+            <p className="mb-16">(______________________)</p>
+            <p>Kepala Depo</p>
+        </div>
+        <div>
+            <p className="mb-16">(______________________)</p>
+            <p>Kepala Gudang</p>
+        </div>
+        <div>
+            <p className="mb-16">(______________________)</p>
+            {processAction === 'kirim' ? <p>Penerima (Pusat)</p> : <p>Saksi</p>}
+        </div>
+      </div>
+
       <div className="mt-6 flex justify-end gap-4 print:hidden">
           <button className="btn btn-info" onClick={() => window.print()}>Cetak List</button>
           <button onClick={handleProcessSelected} className="btn btn-secondary">Proses Barang Terpilih</button>
       </div>
-      {showProcessForm && (<div className="print:hidden"><div className="divider">Proses Tindak Lanjut</div><div className="p-4 border rounded-lg bg-base-200 mt-4"><h4 className="font-bold">Tindak Lanjut untuk Barang Terpilih</h4><div className="form-control mt-4"><label className="label"><span className="label-text">Pilih Aksi Final</span></label><select value={processAction} onChange={(e) => setProcessAction(e.target.value)} className="select select-bordered"><option value="kirim">Kirim ke Pusat</option><option value="musnahkan">Musnahkan</option></select></div><div className="form-control mt-2"><label className="label"><span className="label-text">No. Dokumen</span></label><input type="text" value={documentNumber} onChange={(e) => setDocumentNumber(e.target.value)} placeholder="No. Surat Jalan / Berita Acara" className="input input-bordered" /></div><div className="mt-4 flex gap-2"><button onClick={handleSaveFinalAction} className="btn btn-success">Simpan Aksi</button><button onClick={() => setShowProcessForm(false)} className="btn btn-ghost">Batal</button></div></div></div>)}
+      {showProcessForm && (<div className="print:hidden"><div className="divider">Proses Tindak Lanjut</div><div className="p-4 border rounded-lg bg-base-200 mt-4"><h4 className="font-bold">Tindak Lanjut untuk Barang Terpilih</h4><div className="form-control mt-4"><label className="label"><span className="label-text">Pilih Aksi Final</span></label><select value={processAction} onChange={(e) => setProcessAction(e.target.value)} className="select select-bordered"><option value="kirim">Kirim ke Pusat</option><option value="musnahkan">Musnahkan</option></select></div><div className="form-control mt-2"><label className="label"><span className="label-text">No. Dokumen (Untuk Surat Jalan / Berita Acara)</span></label><input type="text" value={documentNumber} onChange={(e) => setDocumentNumber(e.target.value)} placeholder="Wajib diisi sebelum mencetak..." className="input input-bordered" /></div><div className="mt-4 flex gap-2"><button onClick={handleSaveFinalAction} className="btn btn-success">Simpan Aksi</button><button onClick={() => setShowProcessForm(false)} className="btn btn-ghost">Batal</button></div></div></div>)}
     </div>
   );
 };
-
 function ManajemenRetur({ userProfile }) {
   const [activeTab, setActiveTab] = useState('returBaik');
+  
   return (
     <div className="p-8">
       <h1 className="text-3xl font-bold mb-6 print:hidden">Manajemen Retur</h1>
@@ -362,4 +399,5 @@ function ManajemenRetur({ userProfile }) {
     </div>
   );
 }
+
 export default ManajemenRetur;
