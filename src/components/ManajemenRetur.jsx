@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+Import React, { useState, useEffect } from 'react';
 import { ref, onValue, get, update, push, serverTimestamp, runTransaction } from 'firebase/database';
 import { db } from '../firebaseConfig';
 import CameraBarcodeScanner from './CameraBarcodeScanner';
@@ -203,6 +203,7 @@ const TabReturRusak = ({ userProfile }) => {
     </>
   );
 };
+
 const TabKirimPusat = ({ userProfile }) => {
   const [damagedItems, setDamagedItems] = useState([]);
   const [filteredItems, setFilteredItems] = useState([]);
@@ -307,8 +308,6 @@ const TabKirimPusat = ({ userProfile }) => {
 
   return (
     <div className="p-4 space-y-4 printable-area">
-      
-      {/* --- KOP SURAT DINAMIS (HANYA MUNCUL SAAT PRINT) --- */}
       <div className="hidden print:block mb-4">
         <div className="flex items-center justify-center mb-4 border-b-2 border-black pb-2">
             <img src="/logo_bulet_mhm.gif" alt="Logo Perusahaan" className="h-20 w-20 mr-4" />
@@ -355,8 +354,6 @@ const TabKirimPusat = ({ userProfile }) => {
             </tbody>
         </table>
       </div>
-
-      {/* --- BLOK TANDA TANGAN DINAMIS (HANYA MUNCUL SAAT PRINT) --- */}
       <div className="hidden print:block flex justify-around mt-16 pt-8 text-center text-sm">
         <div>
             <p className="mb-16">(______________________)</p>
@@ -371,7 +368,6 @@ const TabKirimPusat = ({ userProfile }) => {
             {processAction === 'kirim' ? <p>Penerima (Pusat)</p> : <p>Saksi</p>}
         </div>
       </div>
-
       <div className="mt-6 flex justify-end gap-4 print:hidden">
           <button className="btn btn-info" onClick={() => window.print()}>Cetak List</button>
           <button onClick={handleProcessSelected} className="btn btn-secondary">Proses Barang Terpilih</button>
