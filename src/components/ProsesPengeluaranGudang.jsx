@@ -1,21 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { ref, onValue, update, push, serverTimestamp, runTransaction } from 'firebase/database';
 import { db } from '../firebaseConfig';
-// import TombolKembali from './TombolKembali'; // <-- Baris ini dihapus
+import toast from 'react-hot-toast'; // Menggunakan toast untuk notifikasi
 
-function ProsesPengeluaranGudang({ userProfile, setPage }) {
+function ProsesPengeluaranGudang({ userProfile }) {
   const [readyOrders, setReadyOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
     if (!userProfile.depotId) return;
 
     const ordersRef = ref(db, `depots/${userProfile.depotId}/salesOrders`);
-    const unsubscribe = onValue(ordersRef, (snapshot) => {
+    // Query order yang sudah difakturkan dan siap dikeluarkan
+    const readyToShipQuery = query(ordersRef, orderByChild('status'), equalTo('Siap Dikirim (Sudah Difakturkan)'));
+    
+    const unsubscribe = onValue(readyToShipQuery, (snapshot) => {
       const data = snapshot.val() || {};
       const loadedOrders = Object.keys(data)
-        .map(key => ({ id: key, ...data[key] }))
-        .filter(order => order.status === 'Siap Kirim (Sudah Difakturkan)'); // Hanya tampilkan yang siap kirim
+        .map(key => ({ id: key, ...data[key] }));
 
       setReadyOrders(loadedOrders.sort((a, b) => b.createdAt - a.createdAt));
       setLoading(false);
@@ -58,17 +62,21 @@ function ProsesPengeluaranGudang({ userProfile, setPage }) {
         status: 'Selesai'
       });
 
-      alert("Barang berhasil dikeluarkan dan transaksi selesai.");
+      toast.success("Barang berhasil dikeluarkan dan transaksi selesai.");
 
     } catch (error) {
       console.error("Gagal konfirmasi pengeluaran:", error);
-      alert("Terjadi kesalahan saat konfirmasi.");
+      toast.error("Terjadi kesalahan saat konfirmasi.");
     }
+  };
+  
+  const openDetailModal = (order) => {
+    setSelectedOrder(order);
+    setIsModalOpen(true);
   };
 
   return (
-    <div className="p-8">
-      {/* <TombolKembali setPage={setPage} /> <-- Baris ini dihapus */}
+    <div className="p-4 md:p-8">
       <h1 className="text-3xl font-bold mb-6">Daftar Pengeluaran Barang (Gudang)</h1>
       <div className="overflow-x-auto bg-white rounded-lg shadow">
         <table className="table w-full">
@@ -77,8 +85,8 @@ function ProsesPengeluaranGudang({ userProfile, setPage }) {
               <th>Tgl Order</th>
               <th>No. Faktur</th>
               <th>Nama Toko</th>
-              <th>Diproses oleh Admin</th>
-              <th>Aksi</th>
+              <th>Admin Faktur</th>
+              <th className="text-center">Aksi</th>
             </tr>
           </thead>
           <tbody>
@@ -86,17 +94,23 @@ function ProsesPengeluaranGudang({ userProfile, setPage }) {
               <tr><td colSpan="5" className="text-center"><span className="loading loading-dots"></span></td></tr>
             ) : (
               readyOrders.map(order => (
-                <tr key={order.id}>
+                <tr key={order.id} className="hover">
                   <td>{new Date(order.createdAt).toLocaleDateString('id-ID')}</td>
                   <td className="font-bold">{order.invoiceNumber}</td>
                   <td>{order.storeName}</td>
                   <td>{order.processedBy}</td>
-                  <td>
+                  <td className="flex justify-center gap-2">
+                    <button 
+                      onClick={() => openDetailModal(order)}
+                      className="btn btn-xs btn-outline btn-info"
+                    >
+                      Detail
+                    </button>
                     <button 
                       onClick={() => handleConfirmShipment(order)} 
-                      className="btn btn-sm btn-primary"
+                      className="btn btn-xs btn-primary"
                     >
-                      Konfirmasi Barang Keluar
+                      Konfirmasi Keluar
                     </button>
                   </td>
                 </tr>
@@ -108,6 +122,34 @@ function ProsesPengeluaranGudang({ userProfile, setPage }) {
           </tbody>
         </table>
       </div>
+      
+      {/* Modal untuk Detail Order */}
+      {isModalOpen && selectedOrder && (
+        <div className="modal modal-open">
+          <div className="modal-box w-11/12 max-w-lg">
+            <h3 className="font-bold text-lg">Detail Faktur: {selectedOrder.invoiceNumber}</h3>
+            <p className="py-2 text-sm"><strong>Toko:</strong> {selectedOrder.storeName}</p>
+            <p className="text-sm"><strong>Sales:</strong> {selectedOrder.salesName}</p>
+            <div className="divider my-2">Barang Keluar</div>
+            <div className="overflow-x-auto max-h-60 bg-base-200 rounded-lg">
+                <table className="table table-compact w-full">
+                    <thead><tr><th>Nama Barang</th><th>Jumlah (D.P.P)</th></tr></thead>
+                    <tbody>
+                        {selectedOrder.items.map((item, index) => (
+                            <tr key={index}>
+                                <td>{item.name}</td>
+                                <td>{item.displayQty}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            <div className="modal-action">
+                <button onClick={() => setIsModalOpen(false)} className="btn">Tutup</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
