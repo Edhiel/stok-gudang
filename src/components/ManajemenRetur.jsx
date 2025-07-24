@@ -4,119 +4,8 @@ import { db } from '../firebaseConfig';
 import CameraBarcodeScanner from './CameraBarcodeScanner';
 import toast from 'react-hot-toast';
 
-// --- KOMPONEN BARU UNTUK MENAMPILKAN RIWAYAT & FILTER ---
-const RiwayatTransaksi = ({ userProfile, transactionTypes }) => {
-  const [transactions, setTransactions] = useState([]);
-  const [filteredTransactions, setFilteredTransactions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-
-  useEffect(() => {
-    if (!userProfile.depotId) return;
-    setLoading(true);
-    const transRef = ref(db, `depots/${userProfile.depotId}/transactions`);
-    const transQuery = query(transRef, orderByChild('timestamp'));
-
-    onValue(transQuery, (snapshot) => {
-      const data = snapshot.val() || {};
-      const allTransactions = Object.keys(data)
-        .map(key => ({ id: key, ...data[key] }))
-        .filter(t => transactionTypes.includes(t.type))
-        .sort((a, b) => b.timestamp - a.timestamp);
-      setTransactions(allTransactions);
-      setLoading(false);
-    });
-  }, [userProfile.depotId, transactionTypes]);
-
-  useEffect(() => {
-    let items = [...transactions];
-    if (startDate) {
-      const start = new Date(startDate).setHours(0, 0, 0, 0);
-      items = items.filter(t => t.timestamp >= start);
-    }
-    if (endDate) {
-      const end = new Date(endDate).setHours(23, 59, 59, 999);
-      items = items.filter(t => t.timestamp <= end);
-    }
-    setFilteredTransactions(items);
-  }, [startDate, endDate, transactions]);
-
-  const handleMonthSelect = (e) => {
-    const [year, month] = e.target.value.split('-');
-    if (year && month) {
-      const firstDay = new Date(year, month - 1, 1);
-      const lastDay = new Date(year, month, 0);
-      setStartDate(firstDay.toISOString().split('T')[0]);
-      setEndDate(lastDay.toISOString().split('T')[0]);
-    } else {
-      setStartDate('');
-      setEndDate('');
-    }
-  };
-  
-  const monthOptions = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date();
-    d.setMonth(d.getMonth() - i);
-    return {
-      value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-      label: d.toLocaleString('id-ID', { month: 'long', year: 'numeric' })
-    };
-  });
-
-  return (
-    <div className="mt-8 pt-4 border-t-2">
-      <h3 className="text-xl font-semibold mb-4">Riwayat Transaksi</h3>
-      <div className="p-4 bg-base-200 rounded-lg mb-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="form-control">
-          <label className="label-text">Dari Tanggal</label>
-          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="input input-bordered" />
-        </div>
-        <div className="form-control">
-          <label className="label-text">Sampai Tanggal</label>
-          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="input input-bordered" />
-        </div>
-        <div className="form-control">
-          <label className="label-text">Atau Pilih Bulan</label>
-          <select onChange={handleMonthSelect} className="select select-bordered">
-            <option value="">Pilih Bulan...</option>
-            {monthOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-          </select>
-        </div>
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="table table-zebra w-full">
-          <thead>
-            <tr><th>Tanggal</th><th>Tipe</th><th>Detail</th><th>Oleh</th></tr>
-          </thead>
-          <tbody>
-            {loading ? (<tr><td colSpan="4" className="text-center"><span className="loading loading-dots"></span></td></tr>)
-            : filteredTransactions.length === 0 ? (<tr><td colSpan="4" className="text-center">Tidak ada data transaksi pada periode ini.</td></tr>)
-            : (filteredTransactions.map(trans => (
-                <tr key={trans.id}>
-                    <td>{new Date(trans.timestamp).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short'})}</td>
-                    <td><span className="badge badge-info">{trans.type}</span></td>
-                    <td>
-                        <div className="text-xs">
-                            {trans.items.map(item => `${item.name} (${item.displayQty})`).join(', ')}
-                            {trans.fromStore && <span className="block">Dari: {trans.fromStore}</span>}
-                            {trans.documentNumber && <span className="block">No. Dok: {trans.documentNumber}</span>}
-                        </div>
-                    </td>
-                    <td>{trans.user}</td>
-                </tr>
-            )))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-};
-
-
 const TabReturBaik = ({ userProfile }) => {
-  const [items, setItems] = useState([]);
+  const [items, setItems] useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [dosQty, setDosQty] = useState(0);
@@ -197,7 +86,6 @@ const TabReturBaik = ({ userProfile }) => {
         <div className="overflow-x-auto"><table className="table w-full"><thead><tr><th>Nama Barang</th><th>Jumlah Retur</th><th>Aksi</th></tr></thead><tbody>{transactionItems.map((item, index) => (<tr key={index}><td>{item.name}</td><td>{item.displayQty}</td><td><button onClick={() => handleRemoveFromList(index)} className="btn btn-xs btn-error">Hapus</button></td></tr>))}</tbody></table></div>
         <div className="mt-6 flex justify-end"><button onClick={handleSaveTransaction} className="btn btn-success btn-lg">Simpan Seluruh Retur Baik</button></div>
       </div>
-      <RiwayatTransaksi userProfile={userProfile} transactionTypes={['Retur Baik']} />
     </>
   );
 };
@@ -312,10 +200,10 @@ const TabReturRusak = ({ userProfile }) => {
         <div className="overflow-x-auto"><table className="table w-full"><thead><tr><th>Nama Barang</th><th>Jumlah Rusak</th><th>Aksi</th></tr></thead><tbody>{transactionItems.map((item, index) => (<tr key={index}><td>{item.name}</td><td>{item.displayQty}</td><td><button onClick={() => handleRemoveFromList(index)} className="btn btn-xs btn-error">Hapus</button></td></tr>))}</tbody></table></div>
         <div className="mt-6 flex justify-end"><button onClick={handleSaveTransaction} className="btn btn-warning btn-lg">Simpan Seluruh Retur Rusak</button></div>
       </div>
-      <RiwayatTransaksi userProfile={userProfile} transactionTypes={['Retur Rusak']} />
     </>
   );
 };
+
 const TabKirimPusat = ({ userProfile }) => {
   const [damagedItems, setDamagedItems] = useState([]);
   const [filteredItems, setFilteredItems] = useState([]);
@@ -420,7 +308,6 @@ const TabKirimPusat = ({ userProfile }) => {
 
   return (
     <div className="p-4 space-y-4 printable-area">
-      
       <div className="hidden print:block mb-4">
         <div className="flex items-center justify-center mb-4 border-b-2 border-black pb-2">
             <img src="/logo_bulet_mhm.gif" alt="Logo Perusahaan" className="h-20 w-20 mr-4" />
@@ -439,7 +326,6 @@ const TabKirimPusat = ({ userProfile }) => {
             <div><p><strong>Tanggal:</strong> {new Date().toLocaleDateString('id-ID')}</p></div>
         </div>
       </div>
-
       <h3 className="text-xl font-semibold print:hidden">Rekapitulasi Stok Rusak</h3>
       <div className="p-4 border rounded-lg bg-base-200 mb-4 space-y-4 print:hidden">
         <div className="flex flex-wrap gap-4 items-end">
@@ -467,7 +353,6 @@ const TabKirimPusat = ({ userProfile }) => {
             </tbody>
         </table>
       </div>
-
       <div className="hidden print:block flex justify-around mt-16 pt-8 text-center text-sm">
         <div>
             <p className="mb-16">(______________________)</p>
@@ -482,18 +367,144 @@ const TabKirimPusat = ({ userProfile }) => {
             {processAction === 'kirim' ? <p>Penerima (Pusat)</p> : <p>Saksi</p>}
         </div>
       </div>
-
       <div className="mt-6 flex justify-end gap-4 print:hidden">
           <button className="btn btn-info" onClick={() => window.print()}>Cetak List</button>
           <button onClick={handleProcessSelected} className="btn btn-secondary">Proses Barang Terpilih</button>
       </div>
       {showProcessForm && (<div className="print:hidden"><div className="divider">Proses Tindak Lanjut</div><div className="p-4 border rounded-lg bg-base-200 mt-4"><h4 className="font-bold">Tindak Lanjut untuk Barang Terpilih</h4><div className="form-control mt-4"><label className="label"><span className="label-text">Pilih Aksi Final</span></label><select value={processAction} onChange={(e) => setProcessAction(e.target.value)} className="select select-bordered"><option value="kirim">Kirim ke Pusat</option><option value="musnahkan">Musnahkan</option></select></div><div className="form-control mt-2"><label className="label"><span className="label-text">No. Dokumen (Untuk Surat Jalan / Berita Acara)</span></label><input type="text" value={documentNumber} onChange={(e) => setDocumentNumber(e.target.value)} placeholder="Wajib diisi sebelum mencetak..." className="input input-bordered" /></div><div className="mt-4 flex gap-2"><button onClick={handleSaveFinalAction} className="btn btn-success">Simpan Aksi</button><button onClick={() => setShowProcessForm(false)} className="btn btn-ghost">Batal</button></div></div></div>)}
-      
-      <RiwayatTransaksi userProfile={userProfile} transactionTypes={['Pengiriman BS ke Pusat', 'Pemusnahan BS']} />
     </div>
   );
 };
+const TabRiwayat = ({ userProfile }) => {
+  const [transactions, setTransactions] = useState([]);
+  const [filteredTransactions, setFilteredTransactions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [filterType, setFilterType] = useState('');
 
+  const transactionTypes = ['Retur Baik', 'Retur Rusak', 'Pengiriman BS ke Pusat', 'Pemusnahan BS'];
+
+  useEffect(() => {
+    if (!userProfile.depotId) return;
+    setLoading(true);
+    const transRef = ref(db, `depots/${userProfile.depotId}/transactions`);
+    const transQuery = query(transRef, orderByChild('timestamp'));
+
+    onValue(transQuery, (snapshot) => {
+      const data = snapshot.val() || {};
+      const allTransactions = Object.keys(data)
+        .map(key => ({ id: key, ...data[key] }))
+        .filter(t => transactionTypes.includes(t.type))
+        .sort((a, b) => b.timestamp - a.timestamp);
+      setTransactions(allTransactions);
+      setLoading(false);
+    });
+  }, [userProfile.depotId]);
+
+  useEffect(() => {
+    let items = [...transactions];
+    if (startDate) {
+      const start = new Date(startDate).setHours(0, 0, 0, 0);
+      items = items.filter(t => t.timestamp >= start);
+    }
+    if (endDate) {
+      const end = new Date(endDate).setHours(23, 59, 59, 999);
+      items = items.filter(t => t.timestamp <= end);
+    }
+    if (filterType) {
+      items = items.filter(t => t.type === filterType);
+    }
+    setFilteredTransactions(items);
+  }, [startDate, endDate, filterType, transactions]);
+
+  const handleMonthSelect = (e) => {
+    const [year, month] = e.target.value.split('-');
+    if (year && month) {
+      const firstDay = new Date(year, month - 1, 1);
+      const lastDay = new Date(year, month, 0);
+      setStartDate(firstDay.toISOString().split('T')[0]);
+      setEndDate(lastDay.toISOString().split('T')[0]);
+    } else {
+      setStartDate('');
+      setEndDate('');
+    }
+  };
+  
+  const monthOptions = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - i);
+    return {
+      value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+      label: d.toLocaleString('id-ID', { month: 'long', year: 'numeric' })
+    };
+  });
+
+  const getBadgeColor = (type) => {
+    switch(type) {
+        case 'Retur Baik': return 'badge-success';
+        case 'Retur Rusak': return 'badge-warning';
+        case 'Pengiriman BS ke Pusat': return 'badge-info';
+        case 'Pemusnahan BS': return 'badge-error';
+        default: return 'badge-ghost';
+    }
+  }
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="p-4 bg-base-200 rounded-lg mb-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="form-control">
+          <label className="label-text">Dari Tanggal</label>
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="input input-bordered" />
+        </div>
+        <div className="form-control">
+          <label className="label-text">Sampai Tanggal</label>
+          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="input input-bordered" />
+        </div>
+        <div className="form-control">
+          <label className="label-text">Atau Pilih Bulan</label>
+          <select onChange={handleMonthSelect} className="select select-bordered">
+            <option value="">Pilih Bulan...</option>
+            {monthOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+          </select>
+        </div>
+        <div className="form-control">
+          <label className="label-text">Filter Tipe Transaksi</label>
+          <select value={filterType} onChange={e => setFilterType(e.target.value)} className="select select-bordered">
+            <option value="">Semua Tipe</option>
+            {transactionTypes.map(type => <option key={type} value={type}>{type}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="table table-zebra w-full">
+          <thead>
+            <tr><th>Tanggal</th><th>Tipe</th><th>Detail</th><th>Oleh</th></tr>
+          </thead>
+          <tbody>
+            {loading ? (<tr><td colSpan="4" className="text-center"><span className="loading loading-dots"></span></td></tr>)
+            : filteredTransactions.length === 0 ? (<tr><td colSpan="4" className="text-center">Tidak ada data transaksi pada periode ini.</td></tr>)
+            : (filteredTransactions.map(trans => (
+                <tr key={trans.id}>
+                    <td>{new Date(trans.timestamp).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short'})}</td>
+                    <td><span className={`badge ${getBadgeColor(trans.type)}`}>{trans.type}</span></td>
+                    <td>
+                        <div className="text-xs">
+                            {trans.items.map(item => `${item.name} (${item.displayQty})`).join(', ')}
+                            {trans.fromStore && <span className="block">Dari: {trans.fromStore}</span>}
+                            {trans.documentNumber && <span className="block">No. Dok: {trans.documentNumber}</span>}
+                        </div>
+                    </td>
+                    <td>{trans.user}</td>
+                </tr>
+            )))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
 
 function ManajemenRetur({ userProfile }) {
   const [activeTab, setActiveTab] = useState('returBaik');
@@ -505,11 +516,13 @@ function ManajemenRetur({ userProfile }) {
         <a role="tab" className={`tab ${activeTab === 'returBaik' ? 'tab-active' : ''}`} onClick={() => setActiveTab('returBaik')}>Retur Baik</a>
         <a role="tab" className={`tab ${activeTab === 'returRusak' ? 'tab-active' : ''}`} onClick={() => setActiveTab('returRusak')}>Retur Rusak</a>
         <a role="tab" className={`tab ${activeTab === 'kirimPusat' ? 'tab-active' : ''}`} onClick={() => setActiveTab('kirimPusat')}>Rekap & Pengiriman</a>
+        <a role="tab" className={`tab ${activeTab === 'riwayat' ? 'tab-active' : ''}`} onClick={() => setActiveTab('riwayat')}>Riwayat Retur</a>
       </div>
       <div className="bg-white p-6 rounded-b-lg rounded-tr-lg shadow-lg min-h-96">
         {activeTab === 'returBaik' && <TabReturBaik userProfile={userProfile} />}
         {activeTab === 'returRusak' && <TabReturRusak userProfile={userProfile} />}
         {activeTab === 'kirimPusat' && <TabKirimPusat userProfile={userProfile} />}
+        {activeTab === 'riwayat' && <TabRiwayat userProfile={userProfile} />}
       </div>
     </div>
   );
