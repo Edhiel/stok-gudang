@@ -30,19 +30,19 @@ const CetakDokumenPenerimaan = ({ data, userProfile }) => {
                     <p><strong>No. Surat Jalan:</strong> {data.suratJalan}</p>
                 </div>
                 <div>
-                    <p><strong>No. Dokumen:</strong> {data.id}</p>
-                    <p><strong>Tanggal Terima:</strong> {new Date(data.validatedAt).toLocaleDateString('id-ID')}</p>
+                    <p><strong>No. Dokumen Internal:</strong> {data.id}</p>
+                    <p><strong>Tanggal Divalidasi:</strong> {new Date(data.validatedAt).toLocaleDateString('id-ID')}</p>
                 </div>
             </div>
 
-            <table className="table w-full table-compact">
+            <table className="table w-full table-compact border border-black">
                 <thead>
-                    <tr>
-                        <th>Nama Barang</th>
-                        <th>Qty (SJ)</th>
-                        <th>Qty (Fisik)</th>
-                        <th>Selisih</th>
-                        <th>Keterangan</th>
+                    <tr className="border border-black">
+                        <th className="border border-black">Nama Barang</th>
+                        <th className="border border-black">Qty (SJ)</th>
+                        <th className="border border-black">Qty (Fisik)</th>
+                        <th className="border border-black">Selisih</th>
+                        <th className="border border-black">Keterangan</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -51,12 +51,12 @@ const CetakDokumenPenerimaan = ({ data, userProfile }) => {
                         const qtySJ = sjItem ? sjItem.qty : 0;
                         const selisih = fisik.qty - qtySJ;
                         return (
-                            <tr key={fisik.id}>
-                                <td>{fisik.name}</td>
-                                <td>{qtySJ}</td>
-                                <td>{fisik.qty}</td>
-                                <td>{selisih !== 0 ? selisih : '-'}</td>
-                                <td>{fisik.catatan || (fisik.isBonus ? 'Barang Bonus' : '-')}</td>
+                            <tr key={fisik.id} className="border border-black">
+                                <td className="border border-black">{fisik.name}</td>
+                                <td className="border border-black text-center">{qtySJ}</td>
+                                <td className="border border-black text-center">{fisik.qty}</td>
+                                <td className="border border-black text-center">{selisih !== 0 ? selisih : '-'}</td>
+                                <td className="border border-black">{fisik.catatan || (fisik.isBonus ? 'Barang Bonus' : '-')}</td>
                             </tr>
                         );
                     })}
@@ -67,6 +67,7 @@ const CetakDokumenPenerimaan = ({ data, userProfile }) => {
                 <div>
                     <p className="mb-16">(______________________)</p>
                     <p>Penerima / Staf Gudang</p>
+                    <p>{data.validatedBy}</p>
                 </div>
                 <div>
                     <p className="mb-16">(______________________)</p>
@@ -76,7 +77,6 @@ const CetakDokumenPenerimaan = ({ data, userProfile }) => {
         </div>
     );
 };
-
 
 // Komponen untuk Daftar Tampilan Penerimaan
 const DaftarPenerimaan = ({ setView, setSelectedReceiptId, userProfile }) => {
@@ -116,7 +116,7 @@ const DaftarPenerimaan = ({ setView, setSelectedReceiptId, userProfile }) => {
                 <table className="table w-full">
                     <thead>
                         <tr>
-                            <th>Tanggal</th>
+                            <th>Tanggal Dibuat</th>
                             <th>No. Surat Jalan</th>
                             <th>Supplier</th>
                             <th>Status</th>
@@ -149,23 +149,18 @@ const DaftarPenerimaan = ({ setView, setSelectedReceiptId, userProfile }) => {
     );
 };
 // Komponen untuk Form Input dan Validasi
-const FormPenerimaan = ({ receiptId, setView, userProfile }) => {
+const FormPenerimaan = ({ receiptId, setView, userProfile, setPrintableData }) => {
     const [masterItems, setMasterItems] = useState([]);
     const [suppliers, setSuppliers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     
-    // Form State
-    const [receiptData, setReceiptData] = useState({
-        supplierId: '',
-        suratJalan: '',
-        itemsSJ: [], // Item sesuai surat jalan
-        itemsFisik: [], // Item hasil pengecekan fisik
-    });
+    const [receiptData, setReceiptData] = useState({ supplierId: '', suratJalan: '', itemsSJ: [], itemsFisik: [] });
     
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedItem, setSelectedItem] = useState(null);
     const [itemQty, setItemQty] = useState(1);
+    const [bonusCatatan, setBonusCatatan] = useState('');
 
     const isValidationMode = !!receiptId;
 
@@ -184,7 +179,6 @@ const FormPenerimaan = ({ receiptId, setView, userProfile }) => {
                 get(ref(db, `depots/${userProfile.depotId}/penerimaanBarang/${receiptId}`)).then(snapshot => {
                     if (snapshot.exists()) {
                         const data = snapshot.val();
-                        // Inisialisasi itemsFisik dari itemsSJ untuk form validasi
                         const initialFisik = data.itemsSJ.map(item => ({...item, qtyFisik: item.qty, catatan: ''}));
                         setReceiptData({ ...data, itemsFisik: initialFisik });
                     }
@@ -198,6 +192,9 @@ const FormPenerimaan = ({ receiptId, setView, userProfile }) => {
 
     const handleAddItem = (item, qty) => {
         if (!item || qty <= 0) return;
+        if (receiptData.itemsSJ.some(i => i.id === item.id)) {
+            return toast.error("Barang sudah ada di daftar.");
+        }
         const newItem = { id: item.id, name: item.name, qty: Number(qty) };
         setReceiptData(prev => ({ ...prev, itemsSJ: [...prev.itemsSJ, newItem] }));
         setSearchTerm('');
@@ -207,13 +204,26 @@ const FormPenerimaan = ({ receiptId, setView, userProfile }) => {
 
     const handleAddBonusItem = (item, qty, catatan) => {
         if (!item || qty <= 0) return;
+        if (receiptData.itemsFisik.some(i => i.id === item.id)) {
+            return toast.error("Barang sudah ada di daftar. Edit jumlah fisiknya jika perlu.");
+        }
         const newBonusItem = { id: item.id, name: item.name, qtyFisik: Number(qty), isBonus: true, catatan };
         setReceiptData(prev => ({ ...prev, itemsFisik: [...prev.itemsFisik, newBonusItem] }));
         setSearchTerm('');
         setSelectedItem(null);
         setItemQty(1);
-    }
+        setBonusCatatan('');
+    };
     
+    const handleFisikChange = (itemId, field, value) => {
+        setReceiptData(prev => ({
+            ...prev,
+            itemsFisik: prev.itemsFisik.map(item => 
+                item.id === itemId ? { ...item, [field]: value } : item
+            )
+        }));
+    };
+
     const handleSaveInitial = async () => {
         if (!receiptData.supplierId || !receiptData.suratJalan || receiptData.itemsSJ.length === 0) {
             return toast.error("Supplier, No. Surat Jalan, dan minimal 1 barang wajib diisi.");
@@ -231,7 +241,7 @@ const FormPenerimaan = ({ receiptId, setView, userProfile }) => {
                 createdAt: serverTimestamp(),
                 createdBy: userProfile.fullName
             });
-            toast.success("Penerimaan awal berhasil disimpan. Lanjutkan ke validasi fisik.");
+            toast.success("Penerimaan awal berhasil. Silakan validasi fisik.");
             setView('list');
         } catch(err) {
             toast.error("Gagal menyimpan data awal.");
@@ -244,77 +254,194 @@ const FormPenerimaan = ({ receiptId, setView, userProfile }) => {
         setIsSubmitting(true);
         let hasDiscrepancy = false;
         
-        // Cek selisih
-        receiptData.itemsFisik.forEach(fisik => {
+        const finalFisikData = receiptData.itemsFisik.map(i => ({ id: i.id, name: i.name, qty: i.qtyFisik, catatan: i.catatan, isBonus: !!i.isBonus }));
+
+        finalFisikData.forEach(fisik => {
             const sjItem = receiptData.itemsSJ.find(sj => sj.id === fisik.id);
-            if(fisik.isBonus || !sjItem || sjItem.qty !== fisik.qtyFisik) {
+            if(fisik.isBonus || !sjItem || sjItem.qty !== fisik.qty) {
                 hasDiscrepancy = true;
             }
         });
         
         try {
-            // 1. Update stok di gudang
-            for (const item of receiptData.itemsFisik) {
-                if (item.qtyFisik > 0) {
+            for (const item of finalFisikData) {
+                if (item.qty > 0) {
                     const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${item.id}`);
                     await runTransaction(stockRef, (currentStock) => {
-                        if (!currentStock) return { totalStockInPcs: item.qtyFisik, damagedStockInPcs: 0 };
-                        currentStock.totalStockInPcs = (currentStock.totalStockInPcs || 0) + item.qtyFisik;
+                        if (!currentStock) return { totalStockInPcs: item.qty, damagedStockInPcs: 0 };
+                        currentStock.totalStockInPcs = (currentStock.totalStockInPcs || 0) + item.qty;
                         return currentStock;
                     });
                 }
             }
 
-            // 2. Buat transaksi log
-            const transactionItems = receiptData.itemsFisik.map(item => ({
-                id: item.id, name: item.name, qtyInPcs: item.qtyFisik, displayQty: item.qtyFisik, // Sederhanakan displayQty
+            const transactionItems = finalFisikData.map(item => ({
+                id: item.id, name: item.name, qtyInPcs: item.qty, displayQty: item.qty, 
             }));
             const transactionsRef = ref(db, `depots/${userProfile.depotId}/transactions`);
             await push(transactionsRef, {
-                type: 'Stok Masuk',
-                items: transactionItems,
-                user: userProfile.fullName,
-                timestamp: serverTimestamp(),
-                refDoc: receiptId
+                type: 'Stok Masuk', items: transactionItems, user: userProfile.fullName,
+                timestamp: serverTimestamp(), refDoc: receiptId
             });
 
-            // 3. Finalisasi dokumen penerimaan
+            const validatedAt = serverTimestamp();
             const receiptRef = ref(db, `depots/${userProfile.depotId}/penerimaanBarang/${receiptId}`);
-            const finalFisikData = receiptData.itemsFisik.map(i => ({ id: i.id, name: i.name, qty: i.qtyFisik, catatan: i.catatan, isBonus: !!i.isBonus }));
-            await set(receiptRef, {
+            const finalData = {
                 ...receiptData,
                 status: hasDiscrepancy ? 'selesai_selisih' : 'selesai',
                 itemsFisik: finalFisikData,
-                validatedAt: serverTimestamp(),
+                validatedAt: validatedAt,
                 validatedBy: userProfile.fullName
-            });
-
+            };
+            await set(receiptRef, finalData);
+            
             toast.success("Validasi berhasil! Stok telah diperbarui.");
+            setPrintableData({id: receiptId, ...finalData}); // Siapkan data untuk dicetak
             setView('list');
 
         } catch(err) {
-            toast.error("Gagal saat konfirmasi validasi.");
-            console.error(err);
+            toast.error(`Gagal saat konfirmasi validasi: ${err.message}`);
         } finally {
             setIsSubmitting(false);
         }
     };
     
-    // Render form...
-    if (loading) return <div className="text-center"><span className="loading loading-spinner"></span></div>;
+    if (loading) return <div className="text-center p-10"><span className="loading loading-spinner"></span></div>;
 
     if (!isValidationMode) {
-        // Tampilan untuk TAHAP 1: INPUT SURAT JALAN
         return (
-            <div>
-                {/* JSX untuk form input awal */}
+            <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                    <h2 className="text-2xl font-bold">Buat Dokumen Penerimaan Baru</h2>
+                    <button onClick={() => setView('list')} className="btn btn-ghost">Kembali ke Daftar</button>
+                </div>
+
+                <div className="card bg-base-200 p-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="form-control">
+                            <label className="label-text font-bold">Supplier</label>
+                            <select value={receiptData.supplierId} onChange={e => setReceiptData(p => ({...p, supplierId: e.target.value}))} className="select select-bordered">
+                                <option value="">Pilih Supplier</option>
+                                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                        </div>
+                        <div className="form-control">
+                            <label className="label-text font-bold">No. Surat Jalan</label>
+                            <input type="text" value={receiptData.suratJalan} onChange={e => setReceiptData(p => ({...p, suratJalan: e.target.value}))} className="input input-bordered" />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="card bg-base-200 p-4 space-y-2">
+                    <h3 className="font-bold">Tambah Barang Sesuai Surat Jalan</h3>
+                    <div className="form-control dropdown">
+                        <input type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Cari barang..." className="input input-bordered w-full" />
+                        {searchTerm && 
+                            <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">
+                                {masterItems.filter(i => i.name.toLowerCase().includes(searchTerm.toLowerCase())).map(item => (
+                                    <li key={item.id}><a onClick={() => setSelectedItem(item)}>{item.name}</a></li>
+                                ))}
+                            </ul>
+                        }
+                    </div>
+                    {selectedItem && 
+                        <div className="flex items-end gap-2">
+                            <div className="form-control flex-grow">
+                                <label className="label-text">Nama Barang</label>
+                                <input type="text" readOnly value={selectedItem.name} className="input input-bordered bg-gray-200" />
+                            </div>
+                            <div className="form-control">
+                                <label className="label-text">Qty</label>
+                                <input type="number" value={itemQty} onChange={e => setItemQty(e.target.value)} className="input input-bordered w-24" />
+                            </div>
+                            <button onClick={() => handleAddItem(selectedItem, itemQty)} className="btn btn-secondary">Tambah</button>
+                        </div>
+                    }
+                </div>
+
+                <div className="overflow-x-auto">
+                    <table className="table w-full">
+                        <thead><tr><th>Nama Barang</th><th>Qty (SJ)</th><th>Aksi</th></tr></thead>
+                        <tbody>
+                            {receiptData.itemsSJ.map((item, index) => (
+                                <tr key={index}>
+                                    <td>{item.name}</td>
+                                    <td>{item.qty}</td>
+                                    <td><button onClick={() => setReceiptData(p => ({...p, itemsSJ: p.itemsSJ.filter((_, i) => i !== index)}))} className="btn btn-xs btn-error">Hapus</button></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+                <div className="flex justify-end">
+                    <button onClick={handleSaveInitial} disabled={isSubmitting} className="btn btn-primary btn-lg">
+                        {isSubmitting ? <span className="loading loading-spinner"></span> : "Simpan & Lanjutkan Validasi"}
+                    </button>
+                </div>
             </div>
         );
     } else {
-        // Tampilan untuk TAHAP 2: VALIDASI FISIK
         return (
-            <div>
-                {/* JSX untuk form validasi */}
+            <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                    <h2 className="text-2xl font-bold">Validasi Pengecekan Fisik</h2>
+                    <button onClick={() => setView('list')} className="btn btn-ghost">Kembali ke Daftar</button>
+                </div>
+                
+                <div className="card bg-base-200 p-4 text-sm">
+                    <p><strong>Supplier:</strong> {receiptData.supplierName}</p>
+                    <p><strong>No. Surat Jalan:</strong> {receiptData.suratJalan}</p>
+                </div>
+
+                <div className="overflow-x-auto">
+                    <table className="table w-full">
+                        <thead><tr><th>Nama Barang</th><th>Qty (SJ)</th><th>Qty (Fisik)</th><th>Catatan</th></tr></thead>
+                        <tbody>
+                            {receiptData.itemsFisik.map((item, index) => (
+                                <tr key={index}>
+                                    <td>
+                                        {item.name}
+                                        {item.isBonus && <span className="badge badge-success badge-sm ml-2">BONUS</span>}
+                                    </td>
+                                    <td>{receiptData.itemsSJ.find(sj => sj.id === item.id)?.qty || 0}</td>
+                                    <td><input type="number" value={item.qtyFisik} onChange={e => handleFisikChange(item.id, 'qtyFisik', Number(e.target.value))} className="input input-bordered input-sm w-24" /></td>
+                                    <td><input type="text" value={item.catatan} onChange={e => handleFisikChange(item.id, 'catatan', e.target.value)} placeholder="Mis: Rusak, lebih..." className="input input-bordered input-sm w-full" /></td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div className="card bg-base-200 p-4 space-y-2">
+                    <h3 className="font-bold">Tambah Barang Bonus / Tidak Terduga</h3>
+                     <div className="form-control dropdown">
+                        <input type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Cari barang..." className="input input-bordered w-full" />
+                        {searchTerm && 
+                            <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">
+                                {masterItems.filter(i => i.name.toLowerCase().includes(searchTerm.toLowerCase())).map(item => (
+                                    <li key={item.id}><a onClick={() => setSelectedItem(item)}>{item.name}</a></li>
+                                ))}
+                            </ul>
+                        }
+                    </div>
+                    {selectedItem && 
+                        <div className="flex items-end gap-2">
+                            <div className="form-control flex-grow">
+                                <label className="label-text">Nama Barang</label>
+                                <input type="text" readOnly value={selectedItem.name} className="input input-bordered bg-gray-200" />
+                            </div>
+                            <div className="form-control"><label className="label-text">Qty Bonus</label><input type="number" value={itemQty} onChange={e => setItemQty(e.target.value)} className="input input-bordered w-24" /></div>
+                            <div className="form-control flex-grow"><label className="label-text">Catatan</label><input type="text" value={bonusCatatan} onChange={e => setBonusCatatan(e.target.value)} placeholder="Mis: Bonus promo" className="input input-bordered" /></div>
+                            <button onClick={() => handleAddBonusItem(selectedItem, itemQty, bonusCatatan)} className="btn btn-accent">+ Tambah Bonus</button>
+                        </div>
+                    }
+                </div>
+
+                <div className="flex justify-end">
+                    <button onClick={handleConfirmValidation} disabled={isSubmitting} className="btn btn-success btn-lg">
+                        {isSubmitting ? <span className="loading loading-spinner"></span> : "Konfirmasi & Selesaikan Penerimaan"}
+                    </button>
+                </div>
             </div>
         );
     }
@@ -324,7 +451,16 @@ const FormPenerimaan = ({ receiptId, setView, userProfile }) => {
 function StokMasuk({ userProfile }) {
   const [view, setView] = useState('list'); // 'list' or 'form'
   const [selectedReceiptId, setSelectedReceiptId] = useState(null);
-  const printableDataRef = useRef(null);
+  const [printableData, setPrintableData] = useState(null);
+
+  useEffect(() => {
+    if (printableData) {
+      setTimeout(() => {
+        window.print();
+        setPrintableData(null); // Reset setelah print
+      }, 500); // Beri sedikit waktu agar state terupdate sebelum print
+    }
+  }, [printableData]);
 
   const handleSetView = (viewName) => {
       if(viewName === 'list') {
@@ -334,14 +470,16 @@ function StokMasuk({ userProfile }) {
   }
 
   return (
-    <div className="p-8">
-        <h1 className="text-3xl font-bold mb-6 print:hidden">Penerimaan Barang</h1>
+    <div className="p-4 sm:p-8">
+      <div className="print:hidden">
+        <h1 className="text-3xl font-bold mb-6">Penerimaan Barang</h1>
         {view === 'list' ? (
             <DaftarPenerimaan setView={handleSetView} setSelectedReceiptId={setSelectedReceiptId} userProfile={userProfile} />
         ) : (
-            <FormPenerimaan receiptId={selectedReceiptId} setView={handleSetView} userProfile={userProfile} />
+            <FormPenerimaan receiptId={selectedReceiptId} setView={handleSetView} userProfile={userProfile} setPrintableData={setPrintableData} />
         )}
-        <CetakDokumenPenerimaan data={printableDataRef.current} userProfile={userProfile} />
+      </div>
+      <CetakDokumenPenerimaan data={printableData} userProfile={userProfile} />
     </div>
   );
 }
