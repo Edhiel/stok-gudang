@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ref, onValue, get, set, push, serverTimestamp, runTransaction } from 'firebase/database';
 import { db } from '../firebaseConfig';
 import toast from 'react-hot-toast';
+import CameraBarcodeScanner from './CameraBarcodeScanner';
 
 // Komponen untuk Tampilan Cetak
 const CetakDokumenPenerimaan = ({ data, userProfile }) => {
@@ -28,6 +29,8 @@ const CetakDokumenPenerimaan = ({ data, userProfile }) => {
                 <div>
                     <p><strong>Supplier:</strong> {data.supplierName}</p>
                     <p><strong>No. Surat Jalan:</strong> {data.suratJalan}</p>
+                    <p><strong>Supir:</strong> {data.namaSupir || '-'}</p>
+                    <p><strong>No. Polisi:</strong> {data.noPolisi || '-'}</p>
                 </div>
                 <div>
                     <p><strong>No. Dokumen Internal:</strong> {data.id}</p>
@@ -155,12 +158,21 @@ const FormPenerimaan = ({ receiptId, setView, userProfile, setPrintableData }) =
     const [loading, setLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     
-    const [receiptData, setReceiptData] = useState({ supplierId: '', suratJalan: '', itemsSJ: [], itemsFisik: [] });
+    const [receiptData, setReceiptData] = useState({ 
+        supplierId: '', 
+        suratJalan: '', 
+        namaSupir: '',
+        noPolisi: '',
+        itemsSJ: [], 
+        itemsFisik: [] 
+    });
     
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedItem, setSelectedItem] = useState(null);
     const [itemQty, setItemQty] = useState(1);
     const [bonusCatatan, setBonusCatatan] = useState('');
+    const [showScanner, setShowScanner] = useState(false);
+    const [scanTarget, setScanTarget] = useState('');
 
     const isValidationMode = !!receiptId;
 
@@ -189,6 +201,20 @@ const FormPenerimaan = ({ receiptId, setView, userProfile, setPrintableData }) =
         });
     }, [receiptId, userProfile.depotId]);
 
+    const handleScan = (target) => {
+        setScanTarget(target);
+        setShowScanner(true);
+    };
+
+    const handleScanResult = (scannedCode) => {
+        if (scanTarget === 'supir') {
+            setReceiptData(p => ({...p, namaSupir: scannedCode}));
+        } else if (scanTarget === 'nopol') {
+            setReceiptData(p => ({...p, noPolisi: scannedCode}));
+        }
+        setShowScanner(false);
+        setScanTarget('');
+    };
 
     const handleAddItem = (item, qty) => {
         if (!item || qty <= 0) return;
@@ -236,6 +262,8 @@ const FormPenerimaan = ({ receiptId, setView, userProfile, setPrintableData }) =
                 supplierId: receiptData.supplierId,
                 supplierName: supplier.name,
                 suratJalan: receiptData.suratJalan,
+                namaSupir: receiptData.namaSupir,
+                noPolisi: receiptData.noPolisi,
                 itemsSJ: receiptData.itemsSJ,
                 status: 'menunggu_validasi',
                 createdAt: serverTimestamp(),
@@ -276,7 +304,7 @@ const FormPenerimaan = ({ receiptId, setView, userProfile, setPrintableData }) =
             }
 
             const transactionItems = finalFisikData.map(item => ({
-                id: item.id, name: item.name, qtyInPcs: item.qty, displayQty: item.qty, 
+                id: item.id, name: item.name, qtyInPcs: item.qty, displayQty: item.qty,
             }));
             const transactionsRef = ref(db, `depots/${userProfile.depotId}/transactions`);
             await push(transactionsRef, {
@@ -284,19 +312,19 @@ const FormPenerimaan = ({ receiptId, setView, userProfile, setPrintableData }) =
                 timestamp: serverTimestamp(), refDoc: receiptId
             });
 
-            const validatedAt = serverTimestamp();
             const receiptRef = ref(db, `depots/${userProfile.depotId}/penerimaanBarang/${receiptId}`);
-            const finalData = {
+            const now = serverTimestamp();
+            const finalDataForDB = {
                 ...receiptData,
                 status: hasDiscrepancy ? 'selesai_selisih' : 'selesai',
                 itemsFisik: finalFisikData,
-                validatedAt: validatedAt,
+                validatedAt: now,
                 validatedBy: userProfile.fullName
             };
-            await set(receiptRef, finalData);
+            await set(receiptRef, finalDataForDB);
             
             toast.success("Validasi berhasil! Stok telah diperbarui.");
-            setPrintableData({id: receiptId, ...finalData}); // Siapkan data untuk dicetak
+            setPrintableData({id: receiptId, ...finalDataForDB, validatedAt: Date.now() });
             setView('list');
 
         } catch(err) {
@@ -311,6 +339,7 @@ const FormPenerimaan = ({ receiptId, setView, userProfile, setPrintableData }) =
     if (!isValidationMode) {
         return (
             <div className="space-y-6">
+                {showScanner && <CameraBarcodeScanner onScan={handleScanResult} onClose={() => setShowScanner(false)} />}
                 <div className="flex justify-between items-center">
                     <h2 className="text-2xl font-bold">Buat Dokumen Penerimaan Baru</h2>
                     <button onClick={() => setView('list')} className="btn btn-ghost">Kembali ke Daftar</button>
@@ -328,6 +357,20 @@ const FormPenerimaan = ({ receiptId, setView, userProfile, setPrintableData }) =
                         <div className="form-control">
                             <label className="label-text font-bold">No. Surat Jalan</label>
                             <input type="text" value={receiptData.suratJalan} onChange={e => setReceiptData(p => ({...p, suratJalan: e.target.value}))} className="input input-bordered" />
+                        </div>
+                        <div className="form-control">
+                            <label className="label-text font-bold">Nama Supir</label>
+                            <div className="join">
+                                <input type="text" value={receiptData.namaSupir} onChange={e => setReceiptData(p => ({...p, namaSupir: e.target.value}))} className="input input-bordered join-item w-full" />
+                                <button type="button" onClick={() => handleScan('supir')} className="btn btn-primary join-item">Scan</button>
+                            </div>
+                        </div>
+                        <div className="form-control">
+                            <label className="label-text font-bold">No. Polisi</label>
+                            <div className="join">
+                                <input type="text" value={receiptData.noPolisi} onChange={e => setReceiptData(p => ({...p, noPolisi: e.target.value}))} className="input input-bordered join-item w-full" />
+                                <button type="button" onClick={() => handleScan('nopol')} className="btn btn-primary join-item">Scan</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -375,7 +418,7 @@ const FormPenerimaan = ({ receiptId, setView, userProfile, setPrintableData }) =
                 </div>
                 <div className="flex justify-end">
                     <button onClick={handleSaveInitial} disabled={isSubmitting} className="btn btn-primary btn-lg">
-                        {isSubmitting ? <span className="loading loading-spinner"></span> : "Simpan & Lanjutkan Validasi"}
+                        {isSubmitting ? <span className="loading loading-spinner"></span> : "Simpan Penerimaan Awal"}
                     </button>
                 </div>
             </div>
@@ -449,7 +492,7 @@ const FormPenerimaan = ({ receiptId, setView, userProfile, setPrintableData }) =
 
 // Komponen Utama
 function StokMasuk({ userProfile }) {
-  const [view, setView] = useState('list'); // 'list' or 'form'
+  const [view, setView] = useState('list');
   const [selectedReceiptId, setSelectedReceiptId] = useState(null);
   const [printableData, setPrintableData] = useState(null);
 
@@ -457,8 +500,8 @@ function StokMasuk({ userProfile }) {
     if (printableData) {
       setTimeout(() => {
         window.print();
-        setPrintableData(null); // Reset setelah print
-      }, 500); // Beri sedikit waktu agar state terupdate sebelum print
+        setPrintableData(null);
+      }, 500);
     }
   }, [printableData]);
 
