@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ref, onValue, set, push, get, update } from 'firebase/database';
 import { db } from '../firebaseConfig';
 import Papa from 'papaparse';
@@ -28,6 +28,7 @@ function KelolaMasterBarang() {
   const [success, setSuccess] = useState('');
   const [showScanner, setShowScanner] = useState(false);
   const [scanningFor, setScanningFor] = useState(null);
+  const fileInputRef = useRef(null); // Ref untuk input file
 
   useEffect(() => {
     const masterItemsRef = ref(db, 'master_items/');
@@ -177,7 +178,7 @@ function KelolaMasterBarang() {
       name: item.name || '', category: item.category || '', supplierId: item.supplierId || '',
       barcodePcs: item.barcodePcs || '', barcodeDos: item.barcodeDos || '',
       pcsPerPack: item.conversions?.Pack?.inPcs || '',
-      packPerDos: item.conversions?.Dos?.inPcs ? (item.conversions.Dos.inPcs / (item.conversions.Pack.inPcs || 1)) : '',
+      packPerDos: item.conversions?.Dos?.inPcs ? (item.conversions.Dos.inPcs / (item.conversions.Pack?.inPcs || 1)) : '',
     });
     setIsEditModalOpen(true);
   };
@@ -216,12 +217,13 @@ function KelolaMasterBarang() {
   const ScanIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" /></svg>
   );
+
   return (
     <>
       {showScanner && (
         <CameraBarcodeScanner onScan={handleScanResult} onClose={() => setShowScanner(false)} />
       )}
-      <div className="p-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="p-4 sm:p-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1">
           <form onSubmit={handleSubmit} className="card bg-white shadow-lg p-6 space-y-2">
              <h2 className="card-title">Tambah Master Barang</h2>
@@ -283,6 +285,24 @@ function KelolaMasterBarang() {
                 </div>
               </div>
           </div>
+
+          {/* --- BAGIAN BARU UNTUK TOMBOL IMPOR & UNDUH --- */}
+          <div className="flex flex-wrap gap-2 mb-4">
+              <button onClick={handleDownloadTemplate} className="btn btn-sm btn-outline btn-info">
+                Unduh Contoh CSV
+              </button>
+              <button onClick={() => fileInputRef.current.click()} className="btn btn-sm btn-outline btn-success">
+                Impor dari CSV
+              </button>
+              <input 
+                type="file" 
+                ref={fileInputRef}
+                className="hidden"
+                onChange={handleFileUpload}
+                accept=".csv"
+              />
+          </div>
+
           <div className="overflow-x-auto bg-white rounded-lg shadow-lg">
             <table className="table w-full">
               <thead className="bg-gray-200">
