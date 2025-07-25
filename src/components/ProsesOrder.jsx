@@ -6,22 +6,23 @@ import toast from 'react-hot-toast';
 function ProsesOrder({ userProfile }) {
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState('menunggu'); // 'menunggu' atau 'disetujui'
+    const [activeTab, setActiveTab] = useState('menunggu');
     
     // State untuk filter
     const [searchTerm, setSearchTerm] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
 
-    // State untuk modal detail
+    // State untuk modal
     const [selectedOrder, setSelectedOrder] = useState(null);
-    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+    const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+    const [invoiceNumberInput, setInvoiceNumberInput] = useState('');
 
     useEffect(() => {
         if (!userProfile.depotId) return;
         
         const ordersRef = ref(db, `depots/${userProfile.depotId}/salesOrders`);
-        // Ambil semua order yang belum selesai (menunggu atau siap kirim)
         const allPendingOrdersQuery = query(ordersRef, orderByChild('status'));
 
         const unsubscribe = onValue(allPendingOrdersQuery, (snapshot) => {
@@ -37,7 +38,6 @@ function ProsesOrder({ userProfile }) {
         return () => unsubscribe();
     }, [userProfile.depotId]);
 
-    // Logika Filtering
     const filteredOrders = orders.filter(order => {
         const orderDate = new Date(order.createdAt);
         const start = startDate ? new Date(startDate).setHours(0,0,0,0) : null;
@@ -85,15 +85,32 @@ function ProsesOrder({ userProfile }) {
             toast.success("Order berhasil dibatalkan dan stok telah dikembalikan.");
         } catch (error) { toast.error(`Gagal membatalkan order: ${error.message}`); }
     };
+    
+    const handleSaveInvoiceNumber = async () => {
+        if (!invoiceNumberInput) {
+            return toast.error("Nomor faktur tidak boleh kosong.");
+        }
+        const orderRef = ref(db, `depots/${userProfile.depotId}/salesOrders/${selectedOrder.id}`);
+        try {
+            await update(orderRef, { 
+                status: 'Siap Dikirim (Sudah Difakturkan)',
+                invoiceNumber: invoiceNumberInput,
+                processedBy: userProfile.fullName // Mencatat siapa yg memproses faktur
+            });
+            toast.success("Nomor faktur berhasil disimpan. Order siap dikeluarkan gudang.");
+            setIsInvoiceModalOpen(false);
+            setSelectedOrder(null);
+        } catch (error) {
+            toast.error("Gagal menyimpan nomor faktur.");
+        }
+    };
 
     const handleExportTxt = (order) => {
         let content = '';
         order.items.forEach(item => {
             const [dos, pack, pcs] = item.displayQty.split('.');
-            // Format: [Kode Barang] [spasi] [DOS] [spasi] [PACK] [spasi] [PCS]
             content += `${item.id} ${dos} ${pack} ${pcs}\n`;
         });
-
         const blob = new Blob([content], { type: 'text/plain;charset=utf-8;' });
         const link = document.createElement("a");
         const url = URL.createObjectURL(blob);
@@ -107,7 +124,13 @@ function ProsesOrder({ userProfile }) {
 
     const openDetailModal = (order) => {
         setSelectedOrder(order);
-        setIsModalOpen(true);
+        setIsDetailModalOpen(true);
+    };
+
+    const openInvoiceModal = (order) => {
+        setSelectedOrder(order);
+        setInvoiceNumberInput(order.invoiceNumber || ''); // Isi jika sudah ada
+        setIsInvoiceModalOpen(true);
     };
 
     return (
@@ -120,37 +143,22 @@ function ProsesOrder({ userProfile }) {
                     <div className="badge badge-warning ml-2">{orders.filter(o => o.status === 'Menunggu Approval Admin').length}</div>
                 </a>
                 <a role="tab" className={`tab ${activeTab === 'disetujui' ? 'tab-active' : ''}`} onClick={() => setActiveTab('disetujui')}>
-                    Siap Dikirim / Ekspor
+                    Siap Dikirim / Faktur
                     <div className="badge badge-success ml-2">{orders.filter(o => o.status === 'Siap Dikirim').length}</div>
                 </a>
             </div>
 
             <div className="bg-white p-6 rounded-b-lg rounded-tr-lg shadow-lg">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                    <div className="form-control">
-                        <label className="label-text">Cari (No. Order / Toko / Sales)</label>
-                        <input type="text" placeholder="Ketik untuk mencari..." className="input input-bordered w-full" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-                    </div>
-                    <div className="form-control">
-                        <label className="label-text">Dari Tanggal</label>
-                        <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="input input-bordered w-full" />
-                    </div>
-                    <div className="form-control">
-                        <label className="label-text">Sampai Tanggal</label>
-                        <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="input input-bordered w-full" />
-                    </div>
+                    <div className="form-control"><label className="label-text">Cari (No. Order / Toko / Sales)</label><input type="text" placeholder="Ketik untuk mencari..." className="input input-bordered w-full" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
+                    <div className="form-control"><label className="label-text">Dari Tanggal</label><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="input input-bordered w-full" /></div>
+                    <div className="form-control"><label className="label-text">Sampai Tanggal</label><input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="input input-bordered w-full" /></div>
                 </div>
 
                 <div className="overflow-x-auto">
                     <table className="table w-full">
                         <thead className="bg-gray-200">
-                            <tr>
-                                <th>Tanggal</th>
-                                <th>No. Order</th>
-                                <th>Nama Toko</th>
-                                <th>Sales</th>
-                                <th className="text-center">Aksi</th>
-                            </tr>
+                            <tr><th>Tanggal</th><th>No. Order</th><th>Nama Toko</th><th>Sales</th><th className="text-center">Aksi</th></tr>
                         </thead>
                         <tbody>
                             {loading ? (<tr><td colSpan="5" className="text-center"><span className="loading loading-dots"></span></td></tr>)
@@ -170,9 +178,10 @@ function ProsesOrder({ userProfile }) {
                                             </>
                                         )}
                                         {activeTab === 'disetujui' && (
-                                            <button onClick={() => handleExportTxt(order)} className="btn btn-xs btn-outline btn-primary">
-                                                Ekspor TXT (ND6)
-                                            </button>
+                                            <>
+                                                <button onClick={() => handleExportTxt(order)} className="btn btn-xs btn-outline btn-primary">Ekspor TXT</button>
+                                                <button onClick={() => openInvoiceModal(order)} className="btn btn-xs btn-outline btn-accent">Input No. Faktur</button>
+                                            </>
                                         )}
                                     </td>
                                 </tr>
@@ -182,9 +191,21 @@ function ProsesOrder({ userProfile }) {
                 </div>
             </div>
 
-            {isModalOpen && selectedOrder && (
+            {isDetailModalOpen && <div className="modal modal-open">{/* ... (Modal Detail sama seperti sebelumnya) ... */}</div>}
+
+            {isInvoiceModalOpen && (
                 <div className="modal modal-open">
-                    {/* ... (Kode modal tidak berubah) ... */}
+                    <div className="modal-box">
+                        <h3 className="font-bold text-lg">Masukkan Nomor Faktur</h3>
+                        <p className="py-2 text-sm">Untuk Order: <strong>{selectedOrder.orderNumber}</strong></p>
+                        <div className="form-control mt-4">
+                            <input type="text" value={invoiceNumberInput} onChange={(e) => setInvoiceNumberInput(e.target.value)} placeholder="Ketik No. Faktur dari ND6" className="input input-bordered w-full" />
+                        </div>
+                        <div className="modal-action">
+                            <button onClick={handleSaveInvoiceNumber} className="btn btn-primary">Simpan</button>
+                            <button onClick={() => setIsInvoiceModalOpen(false)} className="btn">Batal</button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
