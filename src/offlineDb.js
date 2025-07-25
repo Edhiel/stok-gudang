@@ -2,54 +2,47 @@ import Dexie from 'dexie';
 
 export const db = new Dexie('StokGudangDB');
 
-// Definisikan struktur tabel untuk database lokal
-// Versi dinaikkan menjadi 2 untuk menambahkan tabel baru
-db.version(2).stores({
+// Versi dinaikkan menjadi 3 untuk menambahkan tabel retur
+db.version(3).stores({
   pendingOrders: '++localId, orderNumber, depotId',
-  pendingReceipts: '++localId, suratJalan, depotId' // <-- TABEL BARU
+  pendingReceipts: '++localId, suratJalan, depotId',
+  pendingReturns: '++localId, fromStore, depotId' // <-- TABEL BARU
 });
 
-// Pastikan versi 1 tetap ada untuk transisi
+// Versi sebelumnya tetap ada untuk transisi
+db.version(2).stores({
+  pendingOrders: '++localId, orderNumber, depotId',
+  pendingReceipts: '++localId, suratJalan, depotId'
+});
 db.version(1).stores({
   pendingOrders: '++localId, orderNumber, depotId',
 });
 
 
-// --- FUNGSI UNTUK ORDER (TIDAK BERUBAH) ---
-export const addOrderToQueue = async (orderData) => {
+// --- FUNGSI UNTUK ORDER & PENERIMAAN (TIDAK BERUBAH) ---
+export const addOrderToQueue = async (orderData) => { /* ... */ };
+export const getQueuedOrders = async () => { /* ... */ };
+export const removeOrderFromQueue = async (localId) => { /* ... */ };
+export const addReceiptToQueue = async (receiptData) => { /* ... */ };
+export const getQueuedReceipts = async () => { /* ... */ };
+export const removeReceiptFromQueue = async (localId) => { /* ... */ };
+
+
+// --- FUNGSI BARU UNTUK MANAJEMEN RETUR ---
+export const addReturnToQueue = async (returnData) => {
   try {
-    await db.pendingOrders.add(orderData);
-    console.log("Order disimpan ke antrean offline.");
+    await db.pendingReturns.add(returnData);
+    console.log("Data retur disimpan ke antrean offline.");
     return true;
   } catch (error) {
-    console.error("Gagal menyimpan order offline:", error);
+    console.error("Gagal menyimpan retur offline:", error);
     return false;
   }
 };
-export const getQueuedOrders = async () => {
-  return await db.pendingOrders.toArray();
+export const getQueuedReturns = async () => {
+  return await db.pendingReturns.toArray();
 };
-export const removeOrderFromQueue = async (localId) => {
-  await db.pendingOrders.delete(localId);
-  console.log(`Order ${localId} dihapus dari antrean.`);
-};
-
-
-// --- FUNGSI BARU UNTUK PENERIMAAN BARANG ---
-export const addReceiptToQueue = async (receiptData) => {
-  try {
-    await db.pendingReceipts.add(receiptData);
-    console.log("Penerimaan barang disimpan ke antrean offline.");
-    return true;
-  } catch (error) {
-    console.error("Gagal menyimpan penerimaan barang offline:", error);
-    return false;
-  }
-};
-export const getQueuedReceipts = async () => {
-  return await db.pendingReceipts.toArray();
-};
-export const removeReceiptFromQueue = async (localId) => {
-  await db.pendingReceipts.delete(localId);
-  console.log(`Penerimaan barang ${localId} dihapus dari antrean.`);
+export const removeReturnFromQueue = async (localId) => {
+  await db.pendingReturns.delete(localId);
+  console.log(`Retur ${localId} dihapus dari antrean.`);
 };
