@@ -94,12 +94,12 @@ function KelolaMasterBarang() {
       setError("Nama Barang, Kode Internal, Kategori, dan Supplier wajib diisi!");
       return;
     }
-    const itemId = barcodePcs || push(ref(db, 'master_items')).key;
+    const itemId = barcodePcs || kodeInternal.toUpperCase();
     const itemRef = ref(db, `master_items/${itemId}`);
     
     const snapshot = await get(itemRef);
     if (snapshot.exists()) {
-        setError("Barcode PCS ini sudah terdaftar di master barang.");
+        setError("Barcode PCS atau Kode Internal ini sudah terdaftar.");
         return;
     }
 
@@ -109,9 +109,7 @@ function KelolaMasterBarang() {
 
     try {
       await set(itemRef, {
-        name,
-        kodeInternal: kodeInternal.toUpperCase(),
-        category,
+        name, kodeInternal: kodeInternal.toUpperCase(), category,
         supplierId: selectedSupplier.id, supplierName: selectedSupplier.name,
         subSupplierName: selectedSubSupplierName || null,
         barcodePcs: barcodePcs || null, barcodeDos: barcodeDos || null,
@@ -136,6 +134,32 @@ function KelolaMasterBarang() {
     link.click();
     document.body.removeChild(link);
   };
+
+  const handleExportAll = () => {
+    if (masterItems.length === 0) {
+        return toast.error("Tidak ada data master barang untuk diekspor.");
+    }
+    const dataToExport = masterItems.map(item => ({
+        kodeInternal: item.kodeInternal || '',
+        barcodePcs: item.barcodePcs || '',
+        barcodeDos: item.barcodeDos || '',
+        namaBarang: item.name || '',
+        kategori: item.category || '',
+        idSupplier: item.supplierId || '',
+        namaSubSupplier: item.subSupplierName || '',
+        pcsPerPack: item.conversions?.Pack?.inPcs || '',
+        packPerDos: item.conversions?.Dos?.inPcs ? (item.conversions.Dos.inPcs / (item.conversions.Pack?.inPcs || 1)) : '',
+    }));
+    const csv = Papa.unparse(dataToExport);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.setAttribute("href", URL.createObjectURL(blob));
+    link.setAttribute("download", "master_barang_export.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("Master Barang berhasil diekspor!");
+  };
   
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
@@ -145,43 +169,43 @@ function KelolaMasterBarang() {
       complete: async (results) => {
         const itemsToImport = results.data;
         let successCount = 0; let errorCount = 0; let errorMessages = [];
+        let lastSupplierId = ''; let lastCategory = '';
+
         for (const item of itemsToImport) {
+          if (item.idSupplier) lastSupplierId = item.idSupplier;
+          else item.idSupplier = lastSupplierId;
+
+          if (item.kategori) lastCategory = item.kategori;
+          else item.kategori = lastCategory;
+          
+          const itemId = item.barcodePcs || item.kodeInternal?.toUpperCase();
           if (!item.namaBarang || !item.kategori || !item.idSupplier || !item.kodeInternal) {
-            errorCount++; errorMessages.push(`Data tidak lengkap untuk: ${item.namaBarang || item.kodeInternal || 'Tanpa Nama'}`);
+            errorCount++; errorMessages.push(`Data tidak lengkap: ${item.namaBarang || item.kodeInternal || 'Tanpa Nama'}`);
             continue;
           }
-          const itemId = item.barcodePcs || item.kodeInternal;
           const itemRef = ref(db, `master_items/${itemId}`);
-          
           const supplierData = suppliers.find(s => s.id === item.idSupplier);
           if (!supplierData) {
-            errorCount++; errorMessages.push(`Supplier ID tidak ditemukan: ${item.idSupplier} untuk barang ${item.namaBarang}`);
+            errorCount++; errorMessages.push(`Supplier ID tidak valid: ${item.idSupplier} untuk ${item.namaBarang}`);
             continue;
           }
 
           const pcsPerPackNum = Number(item.pcsPerPack) || 1;
           const packPerDosNum = Number(item.packPerDos) || 1;
           const dataToSave = {
-              name: item.namaBarang,
-              kodeInternal: item.kodeInternal.toUpperCase(),
-              category: item.kategori,
-              supplierId: item.idSupplier,
-              supplierName: supplierData.name,
-              subSupplierName: item.namaSubSupplier || null,
-              barcodePcs: item.barcodePcs || null,
-              barcodeDos: item.barcodeDos || null,
-              baseUnit: 'Pcs',
+              name: item.namaBarang, kodeInternal: item.kodeInternal.toUpperCase(), category: item.kategori,
+              supplierId: item.idSupplier, supplierName: supplierData.name, subSupplierName: item.namaSubSupplier || null,
+              barcodePcs: item.barcodePcs || null, barcodeDos: item.barcodeDos || null, baseUnit: 'Pcs',
               conversions: { Pack: { inPcs: pcsPerPackNum }, Dos: { inPcs: pcsPerPackNum * packPerDosNum } }
           };
-
           try {
             await set(itemRef, dataToSave);
             successCount++;
           } catch (err) {
-            errorCount++; errorMessages.push(`Gagal menyimpan ke DB: ${item.namaBarang}`);
+            errorCount++; errorMessages.push(`Gagal menyimpan: ${item.namaBarang}`);
           }
         }
-        alert(`Proses impor selesai.\nBerhasil Ditambah/Diperbarui: ${successCount}\nGagal: ${errorCount}\n\nDetail Kegagalan:\n${errorMessages.slice(0,10).join('\n')}`);
+        alert(`Impor selesai.\nBerhasil Ditambah/Diperbarui: ${successCount}\nGagal: ${errorCount}\n\nDetail Kegagalan:\n${errorMessages.slice(0,10).join('\n')}`);
       }
     });
     event.target.value = null;
@@ -236,41 +260,14 @@ function KelolaMasterBarang() {
              <h2 className="card-title">Tambah Master Barang</h2>
             {success && <div role="alert" className="alert alert-success text-sm p-2"><span>{success}</span></div>}
             {error && <div role="alert" className="alert alert-error text-sm p-2"><span>{error}</span></div>}
-            
-            <div className="form-control">
-              <label className="label"><span className="label-text font-bold">Nama Barang</span></label>
-              <input type="text" placeholder="Nama produk" value={name} onChange={e => setName(e.target.value)} className="input input-bordered" />
-            </div>
-
-            <div className="form-control">
-              <label className="label"><span className="label-text font-bold">Kode Internal (ND6)</span></label>
-              <input type="text" placeholder="Kode produk dari ND6" value={kodeInternal} onChange={e => setKodeInternal(e.target.value)} className="input input-bordered" />
-            </div>
-
-            <div className="form-control">
-              <label className="label"><span className="label-text font-bold">Kategori</span></label>
-              <select className="select select-bordered" value={category} onChange={e => setCategory(e.target.value)}>
-                <option value="">Pilih Kategori</option>
-                {categories.map(cat => <option key={cat.id} value={cat.name}>{cat.name}</option>)}
-              </select>
-            </div>
-            <div className="form-control">
-              <label className="label"><span className="label-text font-bold">Supplier Utama</span></label>
-              <select className="select select-bordered" value={selectedSupplierId} onChange={e => setSelectedSupplierId(e.target.value)}>
-                <option value="">Pilih Supplier</option>
-                {suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-            </div>
+            <div className="form-control"><label className="label"><span className="label-text font-bold">Nama Barang</span></label><input type="text" placeholder="Nama produk" value={name} onChange={e => setName(e.target.value)} className="input input-bordered" /></div>
+            <div className="form-control"><label className="label"><span className="label-text font-bold">Kode Internal (ND6)</span></label><input type="text" placeholder="Kode produk dari ND6" value={kodeInternal} onChange={e => setKodeInternal(e.target.value)} className="input input-bordered" /></div>
+            <div className="form-control"><label className="label"><span className="label-text font-bold">Kategori</span></label><select className="select select-bordered" value={category} onChange={e => setCategory(e.target.value)}><option value="">Pilih Kategori</option>{categories.map(cat => <option key={cat.id} value={cat.name}>{cat.name}</option>)}</select></div>
+            <div className="form-control"><label className="label"><span className="label-text font-bold">Supplier Utama</span></label><select className="select select-bordered" value={selectedSupplierId} onChange={e => setSelectedSupplierId(e.target.value)}><option value="">Pilih Supplier</option>{suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
             {Object.keys(subSuppliers).length > 0 && <div className="form-control"><label className="label"><span className="label-text">Sub-supplier (Opsional)</span></label><select className="select select-bordered" value={selectedSubSupplierName} onChange={e => setSelectedSubSupplierName(e.target.value)}><option value="">Pilih Sub-supplier</option>{Object.values(subSuppliers).map(sub=><option key={sub.name} value={sub.name}>{sub.name}</option>)}</select></div>}
             <div className="divider text-xs">Info Tambahan (Opsional)</div>
-            <div className="form-control">
-              <label className="label"><span className="label-text">Barcode PCS</span></label>
-              <div className="join"><input type="text" placeholder="Scan atau ketik manual" value={barcodePcs} onChange={e => setBarcodePcs(e.target.value)} className="input input-bordered join-item w-full" /><button type="button" onClick={() => openScanner('pcs')} className="btn join-item btn-primary"><ScanIcon /></button></div>
-            </div>
-            <div className="form-control">
-              <label className="label"><span className="label-text">Barcode DOS</span></label>
-              <div className="join"><input type="text" placeholder="Scan atau ketik manual" value={barcodeDos} onChange={e => setBarcodeDos(e.target.value)} className="input input-bordered join-item w-full" /><button type="button" onClick={() => openScanner('dos')} className="btn join-item btn-primary"><ScanIcon /></button></div>
-            </div>
+            <div className="form-control"><label className="label"><span className="label-text">Barcode PCS</span></label><div className="join"><input type="text" placeholder="Scan atau ketik manual" value={barcodePcs} onChange={e => setBarcodePcs(e.target.value)} className="input input-bordered join-item w-full" /><button type="button" onClick={() => openScanner('pcs')} className="btn join-item btn-primary"><ScanIcon /></button></div></div>
+            <div className="form-control"><label className="label"><span className="label-text">Barcode DOS</span></label><div className="join"><input type="text" placeholder="Scan atau ketik manual" value={barcodeDos} onChange={e => setBarcodeDos(e.target.value)} className="input input-bordered join-item w-full" /><button type="button" onClick={() => openScanner('dos')} className="btn join-item btn-primary"><ScanIcon /></button></div></div>
             <div className="divider text-xs">Rasio Konversi Satuan</div>
             <div className="grid grid-cols-2 gap-2">
               <div className="form-control"><label className="label-text">Pcs/Pack</label><input type="number" placeholder="Contoh: 10" value={pcsPerPack} onChange={e => setPcsPerPack(e.target.value)} className="input input-bordered" /></div>
@@ -287,33 +284,16 @@ function KelolaMasterBarang() {
                 <div><label className="label-text">Filter Supplier</label><select className="select select-bordered w-full" value={filterSupplier} onChange={e => setFilterSupplier(e.target.value)}><option value="">Semua Supplier</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
               </div>
           </div>
-
           <div className="flex flex-wrap gap-2 mb-4">
-              <button onClick={handleDownloadTemplate} className="btn btn-sm btn-outline btn-info">
-                Unduh Template CSV
-              </button>
-              <button onClick={() => fileInputRef.current.click()} className="btn btn-sm btn-outline btn-success">
-                Impor dari CSV
-              </button>
-              <input 
-                type="file" 
-                ref={fileInputRef}
-                className="hidden"
-                onChange={handleFileUpload}
-                accept=".csv"
-              />
+              <button onClick={handleDownloadTemplate} className="btn btn-sm btn-outline btn-info">Unduh Template</button>
+              <button onClick={() => fileInputRef.current.click()} className="btn btn-sm btn-outline btn-success">Impor dari CSV</button>
+              <button onClick={handleExportAll} className="btn btn-sm btn-outline btn-primary">Ekspor Semua ke CSV</button>
+              <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} accept=".csv"/>
           </div>
-
           <div className="overflow-x-auto bg-white rounded-lg shadow-lg">
             <table className="table w-full">
               <thead className="bg-gray-200">
-                <tr>
-                    <th>Nama Barang</th>
-                    <th>Kode Internal</th>
-                    <th>Kategori</th>
-                    <th>Supplier</th>
-                    <th>Aksi</th>
-                </tr>
+                <tr><th>Nama Barang</th><th>Kode Internal</th><th>Kategori</th><th>Supplier</th><th>Aksi</th></tr>
               </thead>
               <tbody>
                 {loading ? (<tr><td colSpan="5" className="text-center"><span className="loading loading-dots"></span></td></tr>) 
@@ -333,14 +313,11 @@ function KelolaMasterBarang() {
       </div>
       {isEditModalOpen && editingItem && (
         <div className="modal modal-open">
-          <div className="modal-box w-11/12 max-w-2xl">
+          <div className="modal-box w-11/2 max-w-2xl">
             <h3 className="font-bold text-lg">Edit Master Barang: {editingItem.name}</h3>
             <div className="py-4 grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-4">
-                <div className="form-control">
-                  <label className="label"><span className="label-text">Kode Internal (ND6) - Tidak bisa diubah</span></label>
-                  <input type="text" readOnly value={editingItem.kodeInternal || ''} className="input input-bordered bg-gray-200 cursor-not-allowed" />
-                </div>
+                <div className="form-control"><label className="label"><span className="label-text">Kode Internal (ND6) - Tidak bisa diubah</span></label><input type="text" readOnly value={editingItem.kodeInternal || ''} className="input input-bordered bg-gray-200 cursor-not-allowed" /></div>
                 <div className="form-control"><label className="label"><span className="label-text">Nama Barang</span></label><input type="text" name="name" value={editedItemData.name} onChange={handleEditFormChange} className="input input-bordered" /></div>
                 <div className="form-control"><label className="label"><span className="label-text">Kategori</span></label><select name="category" value={editedItemData.category} onChange={handleEditFormChange} className="select select-bordered">{categories.map(cat => <option key={cat.id} value={cat.name}>{cat.name}</option>)}</select></div>
                 <div className="form-control"><label className="label"><span className="label-text">Supplier</span></label><select name="supplierId" value={editedItemData.supplierId} onChange={handleEditFormChange} className="select select-bordered">{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
