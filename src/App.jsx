@@ -27,7 +27,8 @@ import ProsesPengeluaranGudang from './components/ProsesPengeluaranGudang';
 import StockOpname from './components/StockOpname';
 import UserProfile from './components/UserProfile';
 import KantorPusat from './components/KantorPusat';
-import TransferStok from './components/TransferStok'; // <-- Impor baru
+import TransferStok from './components/TransferStok';
+import KelolaToko from './components/KelolaToko'; // <-- Impor baru
 
 function App() {
   const [userProfile, setUserProfile] = useState(null);
@@ -68,6 +69,7 @@ function App() {
       console.error("Gagal logout:", error);
     }
   };
+
   const renderMainContent = () => {
     if (!userProfile) return null;
 
@@ -90,66 +92,69 @@ function App() {
 
     switch (mainPage) {
       case 'buat-order':
-        if (isSales || isSuperAdmin) return <BuatOrder userProfile={userProfile} setPage={setMainPage} />;
+        if (isSales || isSuperAdmin) return <BuatOrder userProfile={userProfile} />;
         break;
       case 'proses-order':
-        if (canProcessOrder) return <ProsesOrder userProfile={userProfile} setPage={setMainPage} />;
+        if (canProcessOrder) return <ProsesOrder userProfile={userProfile} />;
         break;
       
       case 'stok-masuk':
-        if (canDoGudangTransaction) return <StokMasuk userProfile={userProfile} setPage={setMainPage} />;
+        if (canDoGudangTransaction) return <StokMasuk userProfile={userProfile} />;
         break;
       case 'stok-keluar':
-        if (canDoGudangTransaction) return <StokKeluar userProfile={userProfile} setPage={setMainPage} />;
+        if (canDoGudangTransaction) return <StokKeluar userProfile={userProfile} />;
         break;
       case 'manajemen-retur':
-        if (canDoGudangTransaction) return <ManajemenRetur userProfile={userProfile} setPage={setMainPage} />;
+        if (canDoGudangTransaction) return <ManajemenRetur userProfile={userProfile} />;
         break;
       case 'stock-opname':
-        if (canDoGudangTransaction) return <StockOpname userProfile={userProfile} setPage={setMainPage} />;
+        if (canDoGudangTransaction) return <StockOpname userProfile={userProfile} />;
         break;
       case 'pengeluaran-barang':
-        if (canDoGudangTransaction) return <ProsesPengeluaranGudang userProfile={userProfile} setPage={setMainPage} />;
+        if (canDoGudangTransaction) return <ProsesPengeluaranGudang userProfile={userProfile} />;
         break;
-      case 'transfer-stok': // <-- Case baru
-        if (canAccessMasterData) return <TransferStok userProfile={userProfile} />;
+      case 'transfer-stok':
+        if (canAccessMasterData || isSuperAdmin) return <TransferStok userProfile={userProfile} />;
         break;
 
       case 'faktur-tertunda':
-        return <FakturTertunda userProfile={userProfile} setPage={setMainPage} />;
+        return <FakturTertunda userProfile={userProfile} />;
       case 'proses-faktur-tertunda':
-        if (canProcessOrder) return <KelolaFakturTertunda userProfile={userProfile} setPage={setMainPage} />;
+        if (canProcessOrder) return <KelolaFakturTertunda userProfile={userProfile} />;
         break;
 
       case 'kelola-master-barang':
-        if (canAccessMasterData) return <KelolaMasterBarang userProfile={userProfile} setPage={setMainPage} />;
+        if (canAccessMasterData) return <KelolaMasterBarang userProfile={userProfile} />;
+        break;
+      case 'kelola-toko': // <-- Case baru
+        if (canAccessMasterData) return <KelolaToko userProfile={userProfile} />;
         break;
       case 'kelola-supplier':
-        if (canAccessMasterData) return <KelolaSupplier userProfile={userProfile} setPage={setMainPage} />;
+        if (canAccessMasterData) return <KelolaSupplier userProfile={userProfile} />;
         break;
       case 'kelola-kategori':
-        if (canAccessMasterData) return <KelolaKategori userProfile={userProfile} setPage={setMainPage} />;
+        if (canAccessMasterData) return <KelolaKategori userProfile={userProfile} />;
         break;
 
       case 'laporan':
-        if (canViewLaporan) return <Laporan userProfile={userProfile} setPage={setMainPage} />;
+        if (canViewLaporan) return <Laporan userProfile={userProfile} />;
         break;
 
       case 'kantor-pusat':
-        if (isSuperAdmin || isAdminPusat) return <KantorPusat userProfile={userProfile} setPage={setMainPage} />;
+        if (isSuperAdmin || isAdminPusat) return <KantorPusat userProfile={userProfile} />;
         break;
 
       case 'kelola-pengguna':
-        if (isSuperAdmin) return <KelolaPengguna userProfile={userProfile} setPage={setMainPage} />;
+        if (isSuperAdmin) return <KelolaPengguna userProfile={userProfile} />;
         break;
       case 'kelola-depo':
-        if (isSuperAdmin) return <KelolaDepo userProfile={userProfile} setPage={setMainPage} />;
+        if (isSuperAdmin) return <KelolaDepo userProfile={userProfile} />;
         break;
       case 'alokasi-supplier':
-        if (isSuperAdmin) return <AlokasiSupplier userProfile={userProfile} setPage={setMainPage} />;
+        if (isSuperAdmin) return <AlokasiSupplier userProfile={userProfile} />;
         break;
       case 'backup-restore':
-        if (isSuperAdmin) return <BackupRestore userProfile={userProfile} setPage={setMainPage} />;
+        if (isSuperAdmin) return <BackupRestore userProfile={userProfile} />;
         break;
         
       case 'user-profile':
@@ -159,6 +164,7 @@ function App() {
         return <Dashboard user={userProfile} setPage={setMainPage} />;
     }
     
+    // Fallback ke dashboard jika tidak ada case yang cocok
     return <Dashboard user={userProfile} setPage={setMainPage} />;
   };
 
