@@ -17,7 +17,7 @@ function KelolaMasterBarang() {
   
   // State untuk form tambah
   const [name, setName] = useState('');
-  const [kodeInternal, setKodeInternal] = useState(''); // <-- STATE BARU
+  const [kodeInternal, setKodeInternal] = useState('');
   const [category, setCategory] = useState('');
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [selectedSubSupplierName, setSelectedSubSupplierName] = useState('');
@@ -26,9 +26,12 @@ function KelolaMasterBarang() {
   const [pcsPerPack, setPcsPerPack] = useState('');
   const [packPerDos, setPackPerDos] = useState('');
   
+  // State untuk modal edit
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [editedItemData, setEditedItemData] = useState({});
+  
+  // State untuk notifikasi dan scanner
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showScanner, setShowScanner] = useState(false);
@@ -36,26 +39,52 @@ function KelolaMasterBarang() {
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-    // ... (useEffect untuk mengambil data tidak berubah)
+    const masterItemsRef = ref(db, 'master_items/');
+    onValue(masterItemsRef, (snapshot) => {
+      const data = snapshot.val() || {};
+      const itemList = data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : [];
+      setMasterItems(itemList);
+    });
+    const suppliersRef = ref(db, 'suppliers/');
+    onValue(suppliersRef, (snapshot) => {
+      const data = snapshot.val() || {};
+      setSuppliers(data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : []);
+    });
+    const categoriesRef = ref(db, 'categories/');
+    onValue(categoriesRef, (snapshot) => {
+      const data = snapshot.val() || {};
+      const loadedCategories = data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : [];
+      setCategories(loadedCategories);
+      setLoading(false);
+    });
   }, []);
 
   useEffect(() => {
-    // ... (useEffect untuk filtering tidak berubah)
+    let items = [...masterItems];
+    if (searchTerm) {
+      items = items.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()));
+    }
+    if (filterCategory) {
+      items = items.filter(item => item.category === filterCategory);
+    }
+    if (filterSupplier) {
+      items = items.filter(item => item.supplierId === filterSupplier);
+    }
+    setFilteredItems(items);
   }, [searchTerm, filterCategory, filterSupplier, masterItems]);
 
   const openScanner = (type) => { setScanningFor(type); setShowScanner(true); };
-  const handleScanResult = (scannedCode) => { /* ... (tidak berubah) ... */ };
+  
+  const handleScanResult = (scannedCode) => {
+    if (scanningFor === 'pcs') setBarcodePcs(scannedCode);
+    else if (scanningFor === 'dos') setBarcodeDos(scannedCode);
+    setShowScanner(false);
+  };
   
   const resetForm = () => { 
-    setName(''); 
-    setKodeInternal(''); // <-- RESET STATE BARU
-    setCategory(''); 
-    setSelectedSupplierId(''); 
-    setSelectedSubSupplierName('');
-    setBarcodePcs(''); 
-    setBarcodeDos(''); 
-    setPcsPerPack(''); 
-    setPackPerDos(''); 
+    setName(''); setKodeInternal(''); setCategory(''); setSelectedSupplierId(''); 
+    setSelectedSubSupplierName(''); setBarcodePcs(''); setBarcodeDos(''); 
+    setPcsPerPack(''); setPackPerDos(''); 
   };
 
   const handleSubmit = async (e) => {
@@ -68,7 +97,6 @@ function KelolaMasterBarang() {
     const itemId = barcodePcs || push(ref(db, 'master_items')).key;
     const itemRef = ref(db, `master_items/${itemId}`);
     
-    // Cek duplikasi
     const snapshot = await get(itemRef);
     if (snapshot.exists()) {
         setError("Barcode PCS ini sudah terdaftar di master barang.");
@@ -82,29 +110,119 @@ function KelolaMasterBarang() {
     try {
       await set(itemRef, {
         name,
-        kodeInternal: kodeInternal.toUpperCase(), // <-- SIMPAN DATA BARU
+        kodeInternal: kodeInternal.toUpperCase(),
         category,
-        supplierId: selectedSupplier.id,
-        supplierName: selectedSupplier.name,
+        supplierId: selectedSupplier.id, supplierName: selectedSupplier.name,
         subSupplierName: selectedSubSupplierName || null,
-        barcodePcs: barcodePcs || null,
-        barcodeDos: barcodeDos || null,
+        barcodePcs: barcodePcs || null, barcodeDos: barcodeDos || null,
         baseUnit: 'Pcs',
         conversions: { Pack: { inPcs: pcsPerPackNum }, Dos: { inPcs: pcsPerPackNum * packPerDosNum } }
       });
       setSuccess(`Barang "${name}" berhasil ditambahkan.`);
       resetForm();
-    } catch(err) {
-      setError("Gagal menambahkan barang.");
-      console.error(err);
-    }
+    } catch(err) { setError("Gagal menambahkan barang."); }
   };
   
-  const handleDownloadTemplate = () => { /* ... (tidak berubah) ... */ };
-  const handleFileUpload = (event) => { /* ... (tidak berubah) ... */ };
-  const handleOpenEditModal = (item) => { /* ... (tidak berubah) ... */ };
-  const handleUpdateItem = async () => { /* ... (tidak berubah) ... */ };
-  const handleEditFormChange = (e) => { /* ... (tidak berubah) ... */ };
+  const handleDownloadTemplate = () => {
+    const csvHeader = "kodeInternal,barcodePcs,barcodeDos,namaBarang,kategori,idSupplier,namaSubSupplier,pcsPerPack,packPerDos\n";
+    const exampleRow = "M411158,899123,1899123,Indomie Goreng,Makanan,SUP-INDFOOD,,40,1\n";
+    const csvContent = csvHeader + exampleRow;
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", "template_master_barang.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+  
+  const handleFileUpload = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    Papa.parse(file, {
+      header: true, skipEmptyLines: true,
+      complete: async (results) => {
+        const itemsToImport = results.data;
+        let successCount = 0; let errorCount = 0; let errorMessages = [];
+        for (const item of itemsToImport) {
+          if (!item.namaBarang || !item.kategori || !item.idSupplier || !item.kodeInternal) {
+            errorCount++; errorMessages.push(`Data tidak lengkap untuk: ${item.namaBarang || item.kodeInternal || 'Tanpa Nama'}`);
+            continue;
+          }
+          const itemId = item.barcodePcs || item.kodeInternal;
+          const itemRef = ref(db, `master_items/${itemId}`);
+          
+          const supplierData = suppliers.find(s => s.id === item.idSupplier);
+          if (!supplierData) {
+            errorCount++; errorMessages.push(`Supplier ID tidak ditemukan: ${item.idSupplier} untuk barang ${item.namaBarang}`);
+            continue;
+          }
+
+          const pcsPerPackNum = Number(item.pcsPerPack) || 1;
+          const packPerDosNum = Number(item.packPerDos) || 1;
+          const dataToSave = {
+              name: item.namaBarang,
+              kodeInternal: item.kodeInternal.toUpperCase(),
+              category: item.kategori,
+              supplierId: item.idSupplier,
+              supplierName: supplierData.name,
+              subSupplierName: item.namaSubSupplier || null,
+              barcodePcs: item.barcodePcs || null,
+              barcodeDos: item.barcodeDos || null,
+              baseUnit: 'Pcs',
+              conversions: { Pack: { inPcs: pcsPerPackNum }, Dos: { inPcs: pcsPerPackNum * packPerDosNum } }
+          };
+
+          try {
+            await set(itemRef, dataToSave);
+            successCount++;
+          } catch (err) {
+            errorCount++; errorMessages.push(`Gagal menyimpan ke DB: ${item.namaBarang}`);
+          }
+        }
+        alert(`Proses impor selesai.\nBerhasil Ditambah/Diperbarui: ${successCount}\nGagal: ${errorCount}\n\nDetail Kegagalan:\n${errorMessages.slice(0,10).join('\n')}`);
+      }
+    });
+    event.target.value = null;
+  };
+
+  const handleOpenEditModal = (item) => {
+    setEditingItem(item);
+    setEditedItemData({
+      name: item.name || '', category: item.category || '', supplierId: item.supplierId || '',
+      barcodePcs: item.barcodePcs || '', barcodeDos: item.barcodeDos || '',
+      pcsPerPack: item.conversions?.Pack?.inPcs || '',
+      packPerDos: item.conversions?.Dos?.inPcs ? (item.conversions.Dos.inPcs / (item.conversions.Pack?.inPcs || 1)) : '',
+    });
+    setIsEditModalOpen(true);
+  };
+
+  const handleUpdateItem = async () => {
+    if (!editedItemData.name) {
+      alert("Nama barang tidak boleh kosong."); return;
+    }
+    const itemRef = ref(db, `master_items/${editingItem.id}`);
+    const pcsPerPackNum = Number(editedItemData.pcsPerPack) || 1;
+    const packPerDosNum = Number(editedItemData.packPerDos) || 1;
+    const selectedSupplier = suppliers.find(s => s.id === editedItemData.supplierId);
+    const updatedData = {
+      name: editedItemData.name, category: editedItemData.category,
+      supplierId: editedItemData.supplierId, supplierName: selectedSupplier.name,
+      barcodePcs: editedItemData.barcodePcs || null, barcodeDos: editedItemData.barcodeDos || null,
+      conversions: { Pack: { inPcs: pcsPerPackNum }, Dos: { inPcs: pcsPerPackNum * packPerDosNum } }
+    };
+    try {
+      await update(itemRef, updatedData);
+      toast.success(`Barang "${editedItemData.name}" berhasil diperbarui.`);
+      setIsEditModalOpen(false);
+    } catch (err) { alert("Gagal memperbarui barang."); }
+  };
+
+  const handleEditFormChange = (e) => {
+    const { name, value } = e.target;
+    setEditedItemData(prev => ({ ...prev, [name]: value }));
+  };
 
   const subSuppliers = suppliers.find(s => s.id === selectedSupplierId)?.subSuppliers || {};
   const ScanIcon = () => ( <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" /></svg> );
@@ -124,7 +242,6 @@ function KelolaMasterBarang() {
               <input type="text" placeholder="Nama produk" value={name} onChange={e => setName(e.target.value)} className="input input-bordered" />
             </div>
 
-            {/* --- FIELD BARU DITAMBAHKAN DI SINI --- */}
             <div className="form-control">
               <label className="label"><span className="label-text font-bold">Kode Internal (ND6)</span></label>
               <input type="text" placeholder="Kode produk dari ND6" value={kodeInternal} onChange={e => setKodeInternal(e.target.value)} className="input input-bordered" />
@@ -170,17 +287,29 @@ function KelolaMasterBarang() {
                 <div><label className="label-text">Filter Supplier</label><select className="select select-bordered w-full" value={filterSupplier} onChange={e => setFilterSupplier(e.target.value)}><option value="">Semua Supplier</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
               </div>
           </div>
+
           <div className="flex flex-wrap gap-2 mb-4">
-              <button onClick={handleDownloadTemplate} className="btn btn-sm btn-outline btn-info">Unduh Contoh CSV</button>
-              <button onClick={() => fileInputRef.current.click()} className="btn btn-sm btn-outline btn-success">Impor dari CSV</button>
-              <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} accept=".csv" />
+              <button onClick={handleDownloadTemplate} className="btn btn-sm btn-outline btn-info">
+                Unduh Template CSV
+              </button>
+              <button onClick={() => fileInputRef.current.click()} className="btn btn-sm btn-outline btn-success">
+                Impor dari CSV
+              </button>
+              <input 
+                type="file" 
+                ref={fileInputRef}
+                className="hidden"
+                onChange={handleFileUpload}
+                accept=".csv"
+              />
           </div>
+
           <div className="overflow-x-auto bg-white rounded-lg shadow-lg">
             <table className="table w-full">
               <thead className="bg-gray-200">
                 <tr>
                     <th>Nama Barang</th>
-                    <th>Kode Internal</th> {/* <-- KOLOM BARU */}
+                    <th>Kode Internal</th>
                     <th>Kategori</th>
                     <th>Supplier</th>
                     <th>Aksi</th>
@@ -191,7 +320,7 @@ function KelolaMasterBarang() {
                 : (filteredItems.map(item => (
                     <tr key={item.id}>
                       <td>{item.name}</td>
-                      <td className="font-mono text-xs">{item.kodeInternal}</td> {/* <-- DATA BARU */}
+                      <td className="font-mono text-xs">{item.kodeInternal}</td>
                       <td>{item.category}</td>
                       <td>{item.supplierName}</td>
                       <td><button onClick={() => handleOpenEditModal(item)} className="btn btn-xs btn-info">Edit</button></td>
