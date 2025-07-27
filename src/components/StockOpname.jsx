@@ -3,6 +3,7 @@ import { ref, onValue, get, runTransaction, push, serverTimestamp } from 'fireba
 import { db } from '../firebaseConfig';
 import toast from 'react-hot-toast';
 import Papa from 'papaparse';
+import CameraBarcodeScanner from './CameraBarcodeScanner';
 
 // Komponen untuk Halaman Pilihan Awal
 const PilihanOpname = ({ setView }) => (
@@ -11,17 +12,17 @@ const PilihanOpname = ({ setView }) => (
             <h2 className="text-2xl font-bold mb-6">Pilih Metode Stok Opname</h2>
             <div className="flex flex-col md:flex-row gap-4">
                 <button onClick={() => setView('manual')} className="btn btn-primary btn-lg">
-                    Opname Manual
+                    Opname Manual Per Item
                 </button>
                 <button onClick={() => setView('impor')} className="btn btn-secondary btn-lg">
-                    Impor dari CSV
+                    Impor Massal dari CSV
                 </button>
             </div>
         </div>
     </div>
 );
 
-// Komponen untuk Impor CSV (yang sudah kita buat)
+// Komponen untuk Impor CSV
 const ImporOpname = ({ setView, userProfile, masterItems, stockData }) => {
     const [loading, setLoading] = useState(false);
     const [previewData, setPreviewData] = useState([]);
@@ -92,7 +93,6 @@ const ImporOpname = ({ setView, userProfile, masterItems, stockData }) => {
             if (!currentStock) {
                 return { totalStockInPcs: item.stokFisik, locations: {} };
             }
-            // Logika ini mengasumsikan opname massal akan menimpa total, dan butuh opname manual per lokasi untuk detail
             currentStock.totalStockInPcs = item.stokFisik;
             return currentStock;
             });
@@ -186,26 +186,143 @@ const ImporOpname = ({ setView, userProfile, masterItems, stockData }) => {
         </div>
     );
 };
-
 // Komponen untuk Opname Manual
-const ManualOpname = ({ setView, userProfile, masterItems, stockData }) => {
-    // Logika dan JSX untuk Opname Manual akan kita tambahkan di sini
+const ManualOpname = ({ setView, userProfile, masterItemsList, stockData }) => {
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedItem, setSelectedItem] = useState(null);
+    const [locationCounts, setLocationCounts] = useState({});
+    const [showScanner, setShowScanner] = useState(false);
+
+    const handleBarcodeDetected = (scannedCode) => {
+        const foundItem = masterItemsList.find(item => item.barcodePcs === scannedCode || item.barcodeDos === scannedCode);
+        if (foundItem) {
+            handleSelectItem(foundItem);
+        } else {
+            toast.error("Barang tidak ditemukan.");
+        }
+        setShowScanner(false);
+    };
+
+    const handleSelectItem = (item) => {
+        setSearchTerm(item.name);
+        const currentStock = stockData[item.id] || { locations: {} };
+        setSelectedItem({ ...item, ...currentStock });
+        // Inisialisasi form dengan data stok saat ini
+        setLocationCounts(currentStock.locations || {});
+    };
+
+    const handleCountChange = (locationId, value) => {
+        setLocationCounts(prev => ({
+            ...prev,
+            [locationId]: Number(value)
+        }));
+    };
+
+    const handleSaveOpname = async () => {
+        const oldTotal = selectedItem.totalStockInPcs || 0;
+        const newTotal = Object.values(locationCounts).reduce((sum, qty) => sum + qty, 0);
+        const selisih = newTotal - oldTotal;
+
+        if (selisih === 0) {
+            return toast.success("Tidak ada perubahan stok.");
+        }
+
+        if (!window.confirm(`Stok akan diubah dari ${oldTotal} menjadi ${newTotal} (Selisih: ${selisih}). Lanjutkan?`)) return;
+
+        try {
+            const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${selectedItem.id}`);
+            await runTransaction(stockRef, (currentStock) => {
+                if (!currentStock) {
+                    return { totalStockInPcs: newTotal, locations: locationCounts };
+                }
+                currentStock.totalStockInPcs = newTotal;
+                currentStock.locations = locationCounts;
+                return currentStock;
+            });
+
+            const transactionsRef = ref(db, `depots/${userProfile.depotId}/transactions`);
+            await push(transactionsRef, {
+                type: 'Stok Opname (Manual)',
+                items: [{
+                    id: selectedItem.id, name: selectedItem.name,
+                    selisih: selisih, stokAwal: oldTotal, stokAkhir: newTotal
+                }],
+                user: userProfile.fullName,
+                timestamp: serverTimestamp()
+            });
+
+            toast.success("Penyesuaian stok berhasil disimpan!");
+            setSelectedItem(null);
+            setSearchTerm('');
+            setLocationCounts({});
+
+        } catch (error) {
+            toast.error(`Gagal menyimpan: ${error.message}`);
+        }
+    };
+
     return (
         <div className="p-4 md:p-8">
+            {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-2xl font-bold">Stok Opname Manual</h2>
                 <button onClick={() => setView('pilihan')} className="btn btn-ghost">Kembali</button>
             </div>
-            {/* Konten untuk opname manual akan ditambahkan di sini */}
-            <p>Fitur untuk stok opname manual per lokasi akan segera dibangun di sini.</p>
+            <div className="card bg-white shadow-lg p-4 space-y-4">
+                <div className="form-control">
+                    <label className="label-text">Cari Barang</label>
+                    <div className="join w-full">
+                        <input type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Ketik nama atau scan barcode..." className="input input-bordered join-item w-full" />
+                        <button onClick={() => setShowScanner(true)} className="btn btn-primary join-item">Scan</button>
+                    </div>
+                     {searchTerm && !selectedItem &&
+                        <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">
+                            {masterItemsList.filter(i => i.name.toLowerCase().includes(searchTerm.toLowerCase())).slice(0, 5).map(item => (
+                                <li key={item.id}><a onClick={() => handleSelectItem(item)}>{item.name}</a></li>
+                            ))}
+                        </ul>
+                    }
+                </div>
+
+                {selectedItem && (
+                    <div className="mt-4">
+                        <h3 className="font-bold text-lg">{selectedItem.name}</h3>
+                        <p className="text-sm">Stok Sistem Total: <strong>{selectedItem.totalStockInPcs || 0} Pcs</strong></p>
+                        <div className="divider">Input Hitungan Fisik per Lokasi</div>
+                        <div className="space-y-2">
+                            {Object.keys(selectedItem.locations).map(locId => (
+                                <div key={locId} className="form-control">
+                                    <label className="label">
+                                        <span className="label-text">{locId}</span>
+                                        <span className="label-text-alt">Stok Sistem: {selectedItem.locations[locId]}</span>
+                                    </label>
+                                    <input 
+                                        type="number" 
+                                        value={locationCounts[locId] || ''}
+                                        onChange={(e) => handleCountChange(locId, e.target.value)}
+                                        className="input input-bordered" 
+                                    />
+                                </div>
+                            ))}
+                            {Object.keys(selectedItem.locations).length === 0 && <p className="text-sm text-center p-4 bg-base-200 rounded-lg">Barang ini belum memiliki catatan stok di lokasi manapun.</p>}
+                        </div>
+                        <div className="mt-6 flex justify-end">
+                            <button onClick={handleSaveOpname} className="btn btn-primary">Simpan Penyesuaian</button>
+                        </div>
+                    </div>
+                )}
+            </div>
         </div>
     );
 };
+
+// Komponen Utama
 function StockOpname({ userProfile }) {
   const [masterItems, setMasterItems] = useState({});
+  const [masterItemsList, setMasterItemsList] = useState([]);
   const [stockData, setStockData] = useState({});
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState('pilihan'); // pilihan, manual, impor, previewImpor
+  const [view, setView] = useState('pilihan');
 
   useEffect(() => {
     if (!userProfile.depotId) {
@@ -217,13 +334,16 @@ function StockOpname({ userProfile }) {
     get(masterItemsRef).then((snapshot) => {
       const items = snapshot.val() || {};
       const itemsByInternalCode = {};
+      const itemListForSearch = [];
       Object.keys(items).forEach(key => {
-        const item = items[key];
+        const item = { id: key, ...items[key] };
+        itemListForSearch.push(item);
         if (item.kodeInternal) {
-          itemsByInternalCode[item.kodeInternal.toUpperCase()] = { id: key, ...item };
+          itemsByInternalCode[item.kodeInternal.toUpperCase()] = item;
         }
       });
       setMasterItems(itemsByInternalCode);
+      setMasterItemsList(itemListForSearch);
 
       const stockRef = ref(db, `depots/${userProfile.depotId}/stock`);
       onValue(stockRef, (stockSnapshot) => {
@@ -240,11 +360,10 @@ function StockOpname({ userProfile }) {
   const renderView = () => {
     switch(view) {
         case 'manual':
-            return <ManualOpname setView={setView} userProfile={userProfile} masterItems={masterItems} stockData={stockData} />;
+            return <ManualOpname setView={setView} userProfile={userProfile} masterItemsList={masterItemsList} stockData={stockData} />;
         case 'impor':
             return <ImporOpname setView={setView} userProfile={userProfile} masterItems={masterItems} stockData={stockData} />;
         case 'previewImpor':
-            // ImporOpname juga menangani tampilan preview-nya sendiri
             return <ImporOpname setView={setView} userProfile={userProfile} masterItems={masterItems} stockData={stockData} />;
         case 'pilihan':
         default:
