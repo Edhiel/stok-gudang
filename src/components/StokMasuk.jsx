@@ -14,9 +14,9 @@ const CetakDokumenPenerimaan = ({ data, userProfile }) => {
     });
 
     const docTitle = isDiscrepancy ? "BERITA ACARA SELISIH PENERIMAAN BARANG" : "TANDA TERIMA BARANG";
-    
+
     const formatToDPP = (totalPcs, conversions) => {
-        if (!totalPcs || !conversions) return totalPcs;
+        if (totalPcs === undefined || !conversions) return totalPcs;
         const dosInPcs = conversions.Dos?.inPcs || (conversions.Pack?.inPcs || 1);
         const packInPcs = conversions.Pack?.inPcs || 1;
         if (dosInPcs === 0 || packInPcs === 0) return totalPcs;
@@ -55,7 +55,7 @@ const CetakDokumenPenerimaan = ({ data, userProfile }) => {
                         <th className="border border-black">Nama Barang</th>
                         <th className="border border-black">Qty (SJ)</th>
                         <th className="border border-black">Qty (Fisik)</th>
-                        <th className="border border-black">Selisih</th>
+                        <th className="border border-black">Lokasi</th>
                         <th className="border border-black">Keterangan</th>
                     </tr>
                 </thead>
@@ -64,13 +64,12 @@ const CetakDokumenPenerimaan = ({ data, userProfile }) => {
                         const sjItem = data.itemsSJ.find(sj => sj.id === fisik.id);
                         const qtySJ = sjItem ? sjItem.displayQty : '0.0.0';
                         const qtyFisik = fisik.displayQty || formatToDPP(fisik.qty, fisik.conversions);
-                        const selisih = (fisik.qty || 0) - (sjItem?.qty || 0);
                         return (
                             <tr key={fisik.id} className="border border-black">
                                 <td className="border border-black">{fisik.name}</td>
                                 <td className="border border-black text-center">{qtySJ}</td>
                                 <td className="border border-black text-center">{qtyFisik}</td>
-                                <td className="border border-black text-center">{selisih !== 0 ? selisih + ' Pcs' : '-'}</td>
+                                <td className="border border-black text-center">{sjItem?.locationId || '-'}</td>
                                 <td className="border border-black">{fisik.catatan || (fisik.isBonus ? 'Barang Bonus' : '-')}</td>
                             </tr>
                         );
@@ -162,20 +161,16 @@ const DaftarPenerimaan = ({ setView, setSelectedReceiptId, userProfile }) => {
         </div>
     );
 };
-
 const FormPenerimaan = ({ receiptId, setView, userProfile, setPrintableData }) => {
     const [masterItems, setMasterItems] = useState([]);
     const [suppliers, setSuppliers] = useState([]);
+    const [locations, setLocations] = useState([]); // <-- State baru untuk lokasi
     const [loading, setLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     
     const [receiptData, setReceiptData] = useState({ 
-        supplierId: '', 
-        suratJalan: '', 
-        namaSupir: '',
-        noPolisi: '',
-        itemsSJ: [], 
-        itemsFisik: [] 
+        supplierId: '', suratJalan: '', namaSupir: '', noPolisi: '',
+        itemsSJ: [], itemsFisik: [] 
     });
     
     const [searchTerm, setSearchTerm] = useState('');
@@ -183,6 +178,7 @@ const FormPenerimaan = ({ receiptId, setView, userProfile, setPrintableData }) =
     const [dosQty, setDosQty] = useState(0);
     const [packQty, setPackQty] = useState(0);
     const [pcsQty, setPcsQty] = useState(0);
+    const [selectedLocation, setSelectedLocation] = useState(''); // <-- State baru
     const [bonusCatatan, setBonusCatatan] = useState('');
     const [showScanner, setShowScanner] = useState(false);
 
@@ -191,13 +187,17 @@ const FormPenerimaan = ({ receiptId, setView, userProfile, setPrintableData }) =
     useEffect(() => {
         const masterItemsPromise = get(ref(db, 'master_items'));
         const suppliersPromise = get(ref(db, 'suppliers'));
+        const locationsPromise = get(ref(db, `depots/${userProfile.depotId}/locations`));
 
-        Promise.all([masterItemsPromise, suppliersPromise]).then(([masterSnapshot, supplierSnapshot]) => {
+        Promise.all([masterItemsPromise, suppliersPromise, locationsPromise]).then(([masterSnapshot, supplierSnapshot, locationSnapshot]) => {
             const masterData = masterSnapshot.val() || {};
             setMasterItems(Object.keys(masterData).map(key => ({ id: key, ...masterData[key] })));
             
             const supplierData = supplierSnapshot.val() || {};
             setSuppliers(Object.keys(supplierData).map(key => ({ id: key, ...supplierData[key] })));
+
+            const locationData = locationSnapshot.val() || {};
+            setLocations(Object.keys(locationData).map(key => ({ id: key, ...locationData[key] })));
 
             if (isValidationMode) {
                 get(ref(db, `depots/${userProfile.depotId}/penerimaanBarang/${receiptId}`)).then(snapshot => {
@@ -225,53 +225,45 @@ const FormPenerimaan = ({ receiptId, setView, userProfile, setPrintableData }) =
     };
 
     const handleAddItem = (item) => {
-        if (!item) return;
+        if (!item || !selectedLocation) {
+            toast.error("Barang dan Lokasi Simpan wajib dipilih.");
+            return;
+        };
         if (receiptData.itemsSJ.some(i => i.id === item.id)) {
             return toast.error("Barang sudah ada di daftar.");
         }
-
         const dosInPcs = item.conversions?.Dos?.inPcs || (item.conversions?.Pack?.inPcs || 1);
         const packInPcs = item.conversions?.Pack?.inPcs || 1;
         const totalPcs = (Number(dosQty) * dosInPcs) + (Number(packQty) * packInPcs) + (Number(pcsQty));
-        
         if (totalPcs <= 0) return toast.error("Jumlah tidak boleh nol.");
-
         const displayQty = `${dosQty}.${packQty}.${pcsQty}`;
-        const newItem = { id: item.id, name: item.name, qty: totalPcs, displayQty, conversions: item.conversions };
-        
+        const newItem = { id: item.id, name: item.name, qty: totalPcs, displayQty, conversions: item.conversions, locationId: selectedLocation };
         setReceiptData(prev => ({ ...prev, itemsSJ: [...prev.itemsSJ, newItem] }));
-        setSearchTerm('');
-        setSelectedItem(null);
-        setDosQty(0); setPackQty(0); setPcsQty(0);
+        setSearchTerm(''); setSelectedItem(null);
+        setDosQty(0); setPackQty(0); setPcsQty(0); setSelectedLocation('');
     };
 
     const handleAddBonusItem = (item, catatan) => {
-        if (!item) return;
-        if (receiptData.itemsFisik.some(i => i.id === item.id)) {
-            return toast.error("Barang sudah ada di daftar. Edit jumlah fisiknya jika perlu.");
-        }
-
+        if (!item || !selectedLocation) {
+            toast.error("Barang dan Lokasi Simpan wajib dipilih.");
+            return;
+        };
         const dosInPcs = item.conversions?.Dos?.inPcs || (item.conversions?.Pack?.inPcs || 1);
         const packInPcs = item.conversions?.Pack?.inPcs || 1;
         const totalPcs = (Number(dosQty) * dosInPcs) + (Number(packQty) * packInPcs) + (Number(pcsQty));
-        
         if (totalPcs <= 0) return toast.error("Jumlah tidak boleh nol.");
-
         const displayQty = `${dosQty}.${packQty}.${pcsQty}`;
-        const newBonusItem = { id: item.id, name: item.name, qtyFisik: totalPcs, displayQty, isBonus: true, catatan, conversions: item.conversions };
-
+        const newBonusItem = { id: item.id, name: item.name, qtyFisik: totalPcs, displayQty, isBonus: true, catatan, conversions: item.conversions, locationId: selectedLocation };
         setReceiptData(prev => ({ ...prev, itemsFisik: [...prev.itemsFisik, newBonusItem] }));
-        setSearchTerm('');
-        setSelectedItem(null);
-        setDosQty(0); setPackQty(0); setPcsQty(0);
-        setBonusCatatan('');
+        setSearchTerm(''); setSelectedItem(null);
+        setDosQty(0); setPackQty(0); setPcsQty(0); setBonusCatatan(''); setSelectedLocation('');
     };
     
-    const handleFisikChange = (itemId, field, value) => {
+    const handleFisikChange = (itemIndex, field, value) => {
         setReceiptData(prev => ({
             ...prev,
-            itemsFisik: prev.itemsFisik.map(item => 
-                item.id === itemId ? { ...item, [field]: value } : item
+            itemsFisik: prev.itemsFisik.map((item, index) => 
+                index === itemIndex ? { ...item, [field]: value } : item
             )
         }));
     };
@@ -285,15 +277,10 @@ const FormPenerimaan = ({ receiptId, setView, userProfile, setPrintableData }) =
             const newReceiptRef = push(ref(db, `depots/${userProfile.depotId}/penerimaanBarang`));
             const supplier = suppliers.find(s => s.id === receiptData.supplierId);
             await set(newReceiptRef, {
-                supplierId: receiptData.supplierId,
-                supplierName: supplier.name,
-                suratJalan: receiptData.suratJalan,
-                namaSupir: receiptData.namaSupir,
-                noPolisi: receiptData.noPolisi,
-                itemsSJ: receiptData.itemsSJ,
-                status: 'menunggu_validasi',
-                createdAt: serverTimestamp(),
-                createdBy: userProfile.fullName
+                supplierId: receiptData.supplierId, supplierName: supplier.name,
+                suratJalan: receiptData.suratJalan, namaSupir: receiptData.namaSupir,
+                noPolisi: receiptData.noPolisi, itemsSJ: receiptData.itemsSJ,
+                status: 'menunggu_validasi', createdAt: serverTimestamp(), createdBy: userProfile.fullName
             });
             toast.success("Penerimaan awal berhasil. Silakan validasi fisik.");
             setView('list');
@@ -308,7 +295,7 @@ const FormPenerimaan = ({ receiptId, setView, userProfile, setPrintableData }) =
         setIsSubmitting(true);
         let hasDiscrepancy = false;
         
-        const finalFisikData = receiptData.itemsFisik.map(i => ({ id: i.id, name: i.name, qty: i.qtyFisik, displayQty: i.displayQty, catatan: i.catatan, isBonus: !!i.isBonus, conversions: i.conversions }));
+        const finalFisikData = receiptData.itemsFisik.map(i => ({ ...i, qty: i.qtyFisik }));
         finalFisikData.forEach(fisik => {
             const sjItem = receiptData.itemsSJ.find(sj => sj.id === fisik.id);
             if(fisik.isBonus || !sjItem || sjItem.qty !== fisik.qty) { hasDiscrepancy = true; }
@@ -319,15 +306,16 @@ const FormPenerimaan = ({ receiptId, setView, userProfile, setPrintableData }) =
                 if (item.qty > 0) {
                     const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${item.id}`);
                     await runTransaction(stockRef, (currentStock) => {
-                        if (!currentStock) return { totalStockInPcs: item.qty, damagedStockInPcs: 0 };
+                        if (!currentStock) currentStock = { totalStockInPcs: 0, locations: {} };
                         currentStock.totalStockInPcs = (currentStock.totalStockInPcs || 0) + item.qty;
+                        const locationId = item.locationId;
+                        currentStock.locations = currentStock.locations || {};
+                        currentStock.locations[locationId] = (currentStock.locations[locationId] || 0) + item.qty;
                         return currentStock;
                     });
                 }
             }
-            const transactionItems = finalFisikData.map(item => ({
-                id: item.id, name: item.name, qtyInPcs: item.qty, displayQty: item.displayQty,
-            }));
+            const transactionItems = finalFisikData.map(item => ({ id: item.id, name: item.name, qtyInPcs: item.qty, displayQty: item.displayQty }));
             const transactionsRef = ref(db, `depots/${userProfile.depotId}/transactions`);
             await push(transactionsRef, {
                 type: 'Stok Masuk', items: transactionItems, user: userProfile.fullName,
@@ -356,9 +344,9 @@ const FormPenerimaan = ({ receiptId, setView, userProfile, setPrintableData }) =
                 <div className="flex justify-between items-center"><h2 className="text-2xl font-bold">Buat Dokumen Penerimaan Baru</h2><button onClick={() => setView('list')} className="btn btn-ghost">Kembali ke Daftar</button></div>
                 <div className="card bg-base-200 p-4"><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div className="form-control"><label className="label-text font-bold">Supplier</label><select value={receiptData.supplierId} onChange={e => setReceiptData(p => ({...p, supplierId: e.target.value}))} className="select select-bordered"><option value="">Pilih Supplier</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div><div className="form-control"><label className="label-text font-bold">No. Surat Jalan</label><input type="text" value={receiptData.suratJalan} onChange={e => setReceiptData(p => ({...p, suratJalan: e.target.value}))} className="input input-bordered" /></div><div className="form-control"><label className="label-text font-bold">Nama Supir</label><input type="text" value={receiptData.namaSupir} onChange={e => setReceiptData(p => ({...p, namaSupir: e.target.value}))} className="input input-bordered w-full" /></div><div className="form-control"><label className="label-text font-bold">No. Polisi</label><input type="text" value={receiptData.noPolisi} onChange={e => setReceiptData(p => ({...p, noPolisi: e.target.value}))} className="input input-bordered w-full" /></div></div></div>
                 <div className="card bg-base-200 p-4 space-y-2"><h3 className="font-bold">Tambah Barang Sesuai Surat Jalan</h3><div className="form-control dropdown"><div className="join w-full"><input type="text" value={searchTerm} onChange={e => {setSearchTerm(e.target.value); setSelectedItem(null);}} placeholder="Cari barang atau scan barcode..." className="input input-bordered join-item w-full" /><button onClick={() => setShowScanner(true)} className="btn btn-primary join-item">Scan</button></div>{searchTerm && !selectedItem && <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">{masterItems.filter(i => i.name.toLowerCase().includes(searchTerm.toLowerCase())).slice(0, 5).map(item => (<li key={item.id}><a onClick={() => setSelectedItem(item)}>{item.name}</a></li>))}</ul>}</div>
-                    {selectedItem && <div className="p-2 border rounded-md mt-2 space-y-2"><p className="font-semibold">{selectedItem.name}</p><div className="flex items-end gap-2 flex-wrap"><div className="form-control"><label className="label-text text-xs">DOS</label><input type="number" value={dosQty} onChange={e => setDosQty(e.target.valueAsNumber || 0)} className="input input-sm input-bordered w-20" /></div><div className="form-control"><label className="label-text text-xs">PACK</label><input type="number" value={packQty} onChange={e => setPackQty(e.target.valueAsNumber || 0)} className="input input-sm input-bordered w-20" /></div><div className="form-control"><label className="label-text text-xs">PCS</label><input type="number" value={pcsQty} onChange={e => setPcsQty(e.target.valueAsNumber || 0)} className="input input-sm input-bordered w-20" /></div><button onClick={() => handleAddItem(selectedItem)} className="btn btn-secondary btn-sm">Tambah</button></div></div>}
+                    {selectedItem && <div className="p-2 border rounded-md mt-2 space-y-2"><p className="font-semibold">{selectedItem.name}</p><div className="flex items-end gap-2 flex-wrap"><div className="form-control"><label className="label-text text-xs">DOS</label><input type="number" value={dosQty} onChange={e => setDosQty(e.target.valueAsNumber || 0)} className="input input-sm input-bordered w-20" /></div><div className="form-control"><label className="label-text text-xs">PACK</label><input type="number" value={packQty} onChange={e => setPackQty(e.target.valueAsNumber || 0)} className="input input-sm input-bordered w-20" /></div><div className="form-control"><label className="label-text text-xs">PCS</label><input type="number" value={pcsQty} onChange={e => setPcsQty(e.target.valueAsNumber || 0)} className="input input-sm input-bordered w-20" /></div><div className="form-control flex-grow"><label className="label-text text-xs font-bold">Lokasi Simpan</label><select className="select select-sm select-bordered" value={selectedLocation} onChange={e => setSelectedLocation(e.target.value)}><option value="">Pilih Lokasi</option>{locations.map(loc=><option key={loc.id} value={loc.id}>{loc.namaLokasi}</option>)}</select></div><button onClick={() => handleAddItem(selectedItem)} className="btn btn-secondary btn-sm">Tambah</button></div></div>}
                 </div>
-                <div className="overflow-x-auto"><table className="table w-full"><thead><tr><th>Nama Barang</th><th>Qty (D.P.P)</th><th>Aksi</th></tr></thead><tbody>{receiptData.itemsSJ.map((item, index) => (<tr key={index}><td>{item.name}</td><td>{item.displayQty}</td><td><button onClick={() => setReceiptData(p => ({...p, itemsSJ: p.itemsSJ.filter((_, i) => i !== index)}))} className="btn btn-xs btn-error">Hapus</button></td></tr>))}</tbody></table></div>
+                <div className="overflow-x-auto"><table className="table w-full"><thead><tr><th>Nama Barang</th><th>Qty (D.P.P)</th><th>Lokasi</th><th>Aksi</th></tr></thead><tbody>{receiptData.itemsSJ.map((item, index) => (<tr key={index}><td>{item.name}</td><td>{item.displayQty}</td><td>{item.locationId}</td><td><button onClick={() => setReceiptData(p => ({...p, itemsSJ: p.itemsSJ.filter((_, i) => i !== index)}))} className="btn btn-xs btn-error">Hapus</button></td></tr>))}</tbody></table></div>
                 <div className="flex justify-end"><button onClick={handleSaveInitial} disabled={isSubmitting} className="btn btn-primary btn-lg">{isSubmitting ? <span className="loading loading-spinner"></span> : "Simpan Penerimaan Awal"}</button></div>
             </div>
         );
@@ -367,11 +355,11 @@ const FormPenerimaan = ({ receiptId, setView, userProfile, setPrintableData }) =
             <div className="space-y-6">
                 <div className="flex justify-between items-center"><h2 className="text-2xl font-bold">Validasi Pengecekan Fisik</h2><button onClick={() => setView('list')} className="btn btn-ghost">Kembali ke Daftar</button></div>
                 <div className="card bg-base-200 p-4 text-sm"><p><strong>Supplier:</strong> {receiptData.supplierName}</p><p><strong>No. Surat Jalan:</strong> {receiptData.suratJalan}</p></div>
-                <div className="overflow-x-auto"><table className="table w-full"><thead><tr><th>Nama Barang</th><th>Qty (SJ)</th><th>Qty (Fisik)</th><th>Catatan</th></tr></thead>
-                    <tbody>{receiptData.itemsFisik.map((item, index) => (<tr key={index}><td>{item.name}{item.isBonus && <span className="badge badge-success badge-sm ml-2">BONUS</span>}</td><td>{receiptData.itemsSJ.find(sj => sj.id === item.id)?.displayQty || '0.0.0'}</td><td><input type="number" value={item.qtyFisik} onChange={e => handleFisikChange(item.id, 'qtyFisik', Number(e.target.value))} className="input input-bordered input-sm w-24" /></td><td><input type="text" value={item.catatan} onChange={e => handleFisikChange(item.id, 'catatan', e.target.value)} placeholder="Mis: Rusak, lebih..." className="input input-bordered input-sm w-full" /></td></tr>))}</tbody>
+                <div className="overflow-x-auto"><table className="table w-full"><thead><tr><th>Nama Barang</th><th>Qty (SJ)</th><th>Lokasi (SJ)</th><th>Qty (Fisik)</th><th>Catatan</th></tr></thead>
+                    <tbody>{receiptData.itemsFisik.map((item, index) => (<tr key={index}><td>{item.name}{item.isBonus && <span className="badge badge-success badge-sm ml-2">BONUS</span>}</td><td>{item.displayQty}</td><td>{item.locationId}</td><td><input type="number" value={item.qtyFisik} onChange={e => handleFisikChange(index, 'qtyFisik', Number(e.target.value))} className="input input-bordered input-sm w-24" /></td><td><input type="text" value={item.catatan} onChange={e => handleFisikChange(index, 'catatan', e.target.value)} placeholder="Mis: Rusak, lebih..." className="input input-bordered input-sm w-full" /></td></tr>))}</tbody>
                 </table></div>
                 <div className="card bg-base-200 p-4 space-y-2"><h3 className="font-bold">Tambah Barang Bonus / Tidak Terduga</h3><div className="form-control dropdown"><input type="text" value={searchTerm} onChange={e => {setSearchTerm(e.target.value); setSelectedItem(null);}} placeholder="Cari barang..." className="input input-bordered w-full" />{searchTerm && !selectedItem && <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">{masterItems.filter(i => i.name.toLowerCase().includes(searchTerm.toLowerCase())).slice(0, 5).map(item => (<li key={item.id}><a onClick={() => setSelectedItem(item)}>{item.name}</a></li>))}</ul>}</div>
-                    {selectedItem && <div className="flex items-end gap-2 flex-wrap"><div className="form-control flex-grow"><label className="label-text">Nama Barang</label><input type="text" readOnly value={selectedItem.name} className="input input-bordered bg-gray-200" /></div><div className="form-control"><label className="label-text text-xs">DOS</label><input type="number" value={dosQty} onChange={e => setDosQty(e.target.valueAsNumber || 0)} className="input input-sm input-bordered w-20" /></div><div className="form-control"><label className="label-text text-xs">PACK</label><input type="number" value={packQty} onChange={e => setPackQty(e.target.valueAsNumber || 0)} className="input input-sm input-bordered w-20" /></div><div className="form-control"><label className="label-text text-xs">PCS</label><input type="number" value={pcsQty} onChange={e => setPcsQty(e.target.valueAsNumber || 0)} className="input input-sm input-bordered w-20" /></div><div className="form-control flex-grow"><label className="label-text">Catatan</label><input type="text" value={bonusCatatan} onChange={e => setBonusCatatan(e.target.value)} placeholder="Mis: Bonus promo" className="input input-bordered input-sm" /></div><button onClick={() => handleAddBonusItem(selectedItem, bonusCatatan)} className="btn btn-accent btn-sm">+ Tambah Bonus</button></div>}
+                    {selectedItem && <div className="flex items-end gap-2 flex-wrap"><div className="form-control flex-grow"><label className="label-text">Nama Barang</label><input type="text" readOnly value={selectedItem.name} className="input input-bordered bg-gray-200" /></div><div className="form-control"><label className="label-text text-xs">DOS</label><input type="number" value={dosQty} onChange={e => setDosQty(e.target.valueAsNumber || 0)} className="input input-sm input-bordered w-20" /></div><div className="form-control"><label className="label-text text-xs">PACK</label><input type="number" value={packQty} onChange={e => setPackQty(e.target.valueAsNumber || 0)} className="input input-sm input-bordered w-20" /></div><div className="form-control"><label className="label-text text-xs">PCS</label><input type="number" value={pcsQty} onChange={e => setPcsQty(e.target.valueAsNumber || 0)} className="input input-sm input-bordered w-20" /></div><div className="form-control flex-grow"><label className="label-text text-xs font-bold">Lokasi Simpan</label><select className="select select-sm select-bordered" value={selectedLocation} onChange={e => setSelectedLocation(e.target.value)}><option value="">Pilih Lokasi</option>{locations.map(loc=><option key={loc.id} value={loc.id}>{loc.namaLokasi}</option>)}</select></div><div className="form-control flex-grow"><label className="label-text">Catatan</label><input type="text" value={bonusCatatan} onChange={e => setBonusCatatan(e.target.value)} placeholder="Mis: Bonus promo" className="input input-bordered input-sm" /></div><button onClick={() => handleAddBonusItem(selectedItem, bonusCatatan)} className="btn btn-accent btn-sm">+ Tambah Bonus</button></div>}
                 </div>
                 <div className="flex justify-end"><button onClick={handleConfirmValidation} disabled={isSubmitting} className="btn btn-success btn-lg">{isSubmitting ? <span className="loading loading-spinner"></span> : "Konfirmasi & Selesaikan Penerimaan"}</button></div>
             </div>
@@ -386,17 +374,14 @@ function StokMasuk({ userProfile }) {
 
   useEffect(() => {
     if (printableData) {
-      setTimeout(() => {
-        window.print();
-        setPrintableData(null);
-      }, 500);
+      setTimeout(() => { window.print(); setPrintableData(null); }, 500);
     }
   }, [printableData]);
 
   const handleSetView = (viewName) => {
       if(viewName === 'list') { setSelectedReceiptId(null); }
       setView(viewName);
-  }
+  };
 
   return (
     <div className="p-4 sm:p-8">
