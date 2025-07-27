@@ -28,7 +28,8 @@ import StockOpname from './components/StockOpname';
 import UserProfile from './components/UserProfile';
 import KantorPusat from './components/KantorPusat';
 import TransferStok from './components/TransferStok';
-import KelolaToko from './components/KelolaToko'; // <-- Impor baru
+import KelolaToko from './components/KelolaToko';
+import KelolaLokasi from './components/KelolaLokasi'; // <-- Impor baru
 
 function App() {
   const [userProfile, setUserProfile] = useState(null);
@@ -126,7 +127,7 @@ function App() {
       case 'kelola-master-barang':
         if (canAccessMasterData) return <KelolaMasterBarang userProfile={userProfile} />;
         break;
-      case 'kelola-toko': // <-- Case baru
+      case 'kelola-toko':
         if (canAccessMasterData) return <KelolaToko userProfile={userProfile} />;
         break;
       case 'kelola-supplier':
@@ -150,6 +151,9 @@ function App() {
       case 'kelola-depo':
         if (isSuperAdmin) return <KelolaDepo userProfile={userProfile} />;
         break;
+      case 'kelola-lokasi': // <-- Case baru
+        if (canAccessMasterData) return <KelolaLokasi userProfile={userProfile} />;
+        break;
       case 'alokasi-supplier':
         if (isSuperAdmin) return <AlokasiSupplier userProfile={userProfile} />;
         break;
@@ -164,7 +168,6 @@ function App() {
         return <Dashboard user={userProfile} setPage={setMainPage} />;
     }
     
-    // Fallback ke dashboard jika tidak ada case yang cocok
     return <Dashboard user={userProfile} setPage={setMainPage} />;
   };
 
