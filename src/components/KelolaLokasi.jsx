@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ref, onValue, set, get, remove } from 'firebase/database';
-import { db } from '../firebaseConfig';
+import { collection, onSnapshot, doc, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
+import { firestoreDb } from '../firebaseConfig';
 import toast from 'react-hot-toast';
 
 function KelolaLokasi({ userProfile }) {
@@ -8,7 +8,7 @@ function KelolaLokasi({ userProfile }) {
   const [filteredLocations, setFilteredLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-
+  
   // State untuk form tambah
   const [kodeLokasi, setKodeLokasi] = useState('');
   const [namaLokasi, setNamaLokasi] = useState('');
@@ -19,12 +19,12 @@ function KelolaLokasi({ userProfile }) {
       setLoading(false);
       return;
     }
-    const locationsRef = ref(db, `depots/${userProfile.depotId}/locations`);
-    const unsubscribe = onValue(locationsRef, (snapshot) => {
-      const data = snapshot.val() || {};
-      const loadedLocations = Object.keys(data).map(key => ({
-        id: key,
-        ...data[key]
+    // Lokasi sekarang adalah sub-koleksi di dalam dokumen depo
+    const locationsCollectionRef = collection(firestoreDb, 'depots', userProfile.depotId, 'locations');
+    const unsubscribe = onSnapshot(locationsCollectionRef, (snapshot) => {
+      const loadedLocations = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
       }));
       setLocations(loadedLocations);
       setLoading(false);
@@ -55,13 +55,15 @@ function KelolaLokasi({ userProfile }) {
       return toast.error("Kode dan Nama Lokasi wajib diisi.");
     }
     const locationId = kodeLokasi.toUpperCase();
-    const newLocationRef = ref(db, `depots/${userProfile.depotId}/locations/${locationId}`);
-    const snapshot = await get(newLocationRef);
-    if (snapshot.exists()) {
+    const newLocationDocRef = doc(firestoreDb, `depots/${userProfile.depotId}/locations/${locationId}`);
+    
+    const docSnap = await getDoc(newLocationDocRef);
+    if (docSnap.exists()) {
       return toast.error(`Kode Lokasi "${locationId}" sudah terdaftar.`);
     }
+
     try {
-      await set(newLocationRef, { namaLokasi, keterangan });
+      await setDoc(newLocationDocRef, { namaLokasi, keterangan });
       toast.success("Lokasi baru berhasil ditambahkan.");
       resetForm();
     } catch (error) {
@@ -70,12 +72,15 @@ function KelolaLokasi({ userProfile }) {
     }
   };
   
-  const handleDelete = (location) => {
+  const handleDelete = async (location) => {
     if (window.confirm(`Apakah Anda yakin ingin menghapus lokasi "${location.namaLokasi}"?`)) {
-        const locationRef = ref(db, `depots/${userProfile.depotId}/locations/${location.id}`);
-        remove(locationRef)
-            .then(() => toast.success("Lokasi berhasil dihapus."))
-            .catch(() => toast.error("Gagal menghapus lokasi."));
+        try {
+            const locationDocRef = doc(firestoreDb, `depots/${userProfile.depotId}/locations/${location.id}`);
+            await deleteDoc(locationDocRef);
+            toast.success("Lokasi berhasil dihapus.");
+        } catch (err) {
+            toast.error("Gagal menghapus lokasi.");
+        }
     }
   };
 
@@ -85,7 +90,7 @@ function KelolaLokasi({ userProfile }) {
 
   return (
     <div className="p-4 sm:p-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div className="lg:col-span-1">
+      <div className="lg-col-span-1">
         <form onSubmit={handleSubmit} className="card bg-white shadow-lg p-6 space-y-2">
           <h2 className="card-title">Tambah Lokasi Gudang</h2>
           <div className="form-control">
@@ -94,7 +99,7 @@ function KelolaLokasi({ userProfile }) {
           </div>
           <div className="form-control">
             <label className="label"><span className="label-text font-bold">Nama Lokasi</span></label>
-            <input type="text" value={namaLokasi} onChange={e => setNamaLokasi(e.target.value)} placeholder="Contoh: Rak A Baris 1, Lantai 2" className="input input-bordered" />
+            <input type="text" value={namaLokasi} onChange={e => setNamaLokasi(e.target.value)} placeholder="Contoh: Rak A Baris 1" className="input input-bordered" />
           </div>
           <div className="form-control">
             <label className="label"><span className="label-text">Keterangan (Opsional)</span></label>
@@ -106,7 +111,7 @@ function KelolaLokasi({ userProfile }) {
         </form>
       </div>
 
-      <div className="lg:col-span-2">
+      <div className="lg-col-span-2">
         <div className="card bg-white shadow-lg p-4 mb-6">
           <div className="form-control">
             <label className="label-text">Cari Lokasi</label>
@@ -129,7 +134,7 @@ function KelolaLokasi({ userProfile }) {
                       <button onClick={() => handleDelete(loc)} className="btn btn-xs btn-error">Hapus</button>
                     </td>
                   </tr>
-                )))}
+              )))}
             </tbody>
           </table>
         </div>
