@@ -1,11 +1,15 @@
+// BARU: Impor fungsi firestore dan 'db' dari firebaseConfig
+import { doc, getDoc } from 'firebase/firestore';
 import React, { useState, useEffect } from 'react';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../firebaseConfig';
+// BARU: pastikan 'db' juga diekspor dari firebaseConfig dan diimpor di sini
+import { auth, db } from '../firebaseConfig'; 
 
 const EyeIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.022 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" /></svg>;
 const EyeSlashIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" /><path fillRule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" /></svg>;
 
-function Login({ setPage }) {
+// BARU: Tambahkan prop 'onLoginSuccess' untuk mengirim data profil ke App.jsx
+function Login({ setPage, onLoginSuccess }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -27,8 +31,28 @@ function Login({ setPage }) {
     setError('');
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      // Langkah 1: Login dengan Firebase Auth (kode ini sudah benar)
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+
+      // --- BAGIAN BARU DIMULAI DI SINI ---
       
+      // Langkah 2: Ambil data profil dari Firestore
+      const userDocRef = doc(db, 'users', user.uid); // Membuat referensi ke dokumen user
+      const docSnap = await getDoc(userDocRef); // Mengambil dokumen
+
+      if (docSnap.exists()) {
+        // Langkah 3: Jika dokumen ada, kirim data profil ke komponen induk (App.jsx)
+        onLoginSuccess(docSnap.data());
+      } else {
+        // Jika profil tidak ditemukan di firestore, tampilkan error
+        setError('Profil pengguna tidak ditemukan di database.');
+        // Optional: logout pengguna jika profil tidak ada
+        // await auth.signOut(); 
+      }
+      
+      // --- BAGIAN BARU SELESAI ---
+
       if (rememberMe) {
         localStorage.setItem('rememberedEmail', email);
         localStorage.setItem('rememberedPassword', password);
@@ -54,12 +78,14 @@ function Login({ setPage }) {
           {error && <div role="alert" className="alert alert-error"><span>{error}</span></div>}
           <div className="form-control">
             <label className="label"><span className="label-text">Email</span></label>
-            <input type="email" placeholder="contoh@email.com" className="input input-bordered" required value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input type="email" placeholder="contoh@email.com" className="input input-bordered" required 
+              value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
           <div className="form-control relative">
             <label className="label"><span className="label-text">Password</span></label>
             <input type={showPassword ? "text" : "password"} placeholder="password" className="input input-bordered pr-10" required value={password} onChange={(e) => setPassword(e.target.value)} />
-            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-0 top-7 pr-3 flex items-center text-gray-500">{showPassword ? <EyeSlashIcon /> : <EyeIcon />}</button>
+            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-0 top-7 pr-3 flex items-center text-gray-500">{showPassword ?
+              <EyeSlashIcon /> : <EyeIcon />}</button>
           </div>
           <div className="form-control mt-2">
             <label className="label cursor-pointer justify-start gap-2">
