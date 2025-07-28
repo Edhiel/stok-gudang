@@ -1,13 +1,32 @@
 import React, { useState, useEffect } from 'react';
-import { ref, onValue } from 'firebase/database';
+import { ref, onValue, get } from 'firebase/database';
 import { db } from '../firebaseConfig';
 import { Bar } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
-const StatCard = ({ title, value, icon, color }) => ( <div className={`card bg-white shadow-md p-4 flex flex-row items-center`}><div className={`text-3xl p-3 rounded-lg ${color}`}>{icon}</div><div className="ml-4"><div className="text-gray-500 text-sm font-semibold">{title}</div><div className="text-2xl font-bold">{value}</div></div></div> );
-const LowStockAlertItem = ({ item, onClick }) => ( <div onClick={onClick} className="flex justify-between items-center p-2 hover:bg-red-50 rounded-lg cursor-pointer"><div><div className="font-bold text-sm text-gray-800">{item.name}</div><div className="text-xs text-gray-500">Sisa: {item.totalStock} Pcs</div></div><div className="font-bold text-red-500 text-sm">Stok Kritis</div></div> );
+const StatCard = ({ title, value, icon, color, loading }) => (
+    <div className={`card bg-white shadow-md p-4 flex flex-row items-center`}>
+        <div className={`text-3xl p-3 rounded-lg ${color}`}>{icon}</div>
+        <div className="ml-4">
+            <div className="text-gray-500 text-sm font-semibold">{title}</div>
+            {loading ? <span className="loading loading-spinner loading-sm"></span> : <div className="text-2xl font-bold">{value}</div>}
+        </div>
+    </div>
+);
+
+const AlertItem = ({ item, onClick, badgeText, badgeColor }) => (
+    <div onClick={onClick} className="flex justify-between items-center p-2 hover:bg-base-200 rounded-lg cursor-pointer">
+        <div>
+            <div className="font-bold text-sm text-gray-800">{item.name || item.itemName}</div>
+            <div className="text-xs text-gray-500">
+                {item.totalStock !== undefined ? `Sisa: ${item.totalStock} Pcs` : `Sisa: ${item.quantity} Pcs | ED: ${new Date(item.expireDate).toLocaleDateString('id-ID')}`}
+            </div>
+        </div>
+        <div className={`badge ${badgeColor} text-xs font-semibold`}>{badgeText}</div>
+    </div>
+);
 
 const MenuModal = ({ title, items, setPage, onClose, colorSchemes }) => {
     const SubMenuCard = ({ name, icon, onClick, category }) => {
@@ -27,9 +46,7 @@ const MainMenuCard = ({ name, icon, onClick, category, colorSchemes }) => {
 const colorSchemes = { orderan: '#0891B2', operasional: '#2563EB', master: '#16A34A', admin: '#9333EA', laporan: '#D97706' };
 
 const Ikon = {
-    // --- 1. TAMBAHKAN IKON BARU UNTUK PERINGATAN/ED ---
     Warning: ({ color = 'currentColor' }) => ( <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 sm:h-12 sm:w-12" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg> ),
-    
     BuatOrder: ({ color = 'currentColor' }) => (<svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 sm:h-12 sm:w-12" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>),
     ProsesOrder: ({ color = 'currentColor' }) => (<svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 sm:h-12 sm:w-12" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>),
     PengeluaranBarang: ({ color = 'currentColor' }) => (<svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 sm:h-12 sm:w-12" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>),
@@ -54,18 +71,89 @@ const Ikon = {
 };
 
 function Dashboard({ user, setPage }) {
-  const [stats, setStats] = useState({ itemCount: 0, supplierCount: 0, pendingInvoices: 0 });
+  const [stats, setStats] = useState({ itemCount: 0, supplierCount: 0, orderCount: 0 });
   const [lowStockItems, setLowStockItems] = useState([]);
-  const [chartData, setChartData] = useState(null);
+  const [expiringItems, setExpiringItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isMenuModalOpen, setIsMenuModalOpen] = useState(false);
   const [modalContent, setModalContent] = useState({ title: '', items: [] });
 
   useEffect(() => {
-    if (!user) { setLoading(false); return; }
-    // Di sini Anda bisa mengisi kembali logika untuk mengambil data statistik,
-    // stok kritis, dan data chart seperti di versi sebelumnya.
-    setLoading(false);
+    if (!user || !user.depotId) { 
+        setLoading(false); 
+        return; 
+    }
+
+    const fetchData = async () => {
+        setLoading(true);
+        try {
+            // Fetch all data in parallel
+            const masterItemsRef = ref(db, 'master_items');
+            const suppliersRef = ref(db, 'suppliers');
+            const stockRef = ref(db, `depots/${user.depotId}/stock`);
+            const ordersRef = ref(db, `depots/${user.depotId}/salesOrders`);
+            const pendingOrdersQuery = query(ordersRef, orderByChild('status'), equalTo('Menunggu Approval Admin'));
+
+            const [masterSnapshot, supplierSnapshot, stockSnapshot, pendingOrdersSnapshot] = await Promise.all([
+                get(masterItemsRef),
+                get(suppliersRef),
+                get(stockSnapshot),
+                get(pendingOrdersSnapshot)
+            ]);
+
+            const masterItems = masterSnapshot.val() || {};
+            const suppliers = supplierSnapshot.val() || {};
+            const stockData = stockSnapshot.val() || {};
+            const pendingOrders = pendingOrdersSnapshot.val() || {};
+
+            // Process stats
+            setStats({
+                itemCount: Object.keys(masterItems).length,
+                supplierCount: Object.keys(suppliers).length,
+                orderCount: Object.keys(pendingOrders).length
+            });
+
+            // Process low stock and expiring items
+            const lowStock = [];
+            const expiring = [];
+            const now = new Date();
+
+            Object.keys(stockData).forEach(itemId => {
+                const stockItem = stockData[itemId];
+                const masterItem = masterItems[itemId];
+
+                if (masterItem) {
+                    // Low stock check
+                    const minStock = masterItem.minStock || 0;
+                    if (stockItem.totalStockInPcs <= minStock) {
+                        lowStock.push({ id: itemId, name: masterItem.name, totalStock: stockItem.totalStockInPcs });
+                    }
+
+                    // Expiring items check
+                    if (stockItem.batches) {
+                        Object.values(stockItem.batches).forEach(batch => {
+                            const expireDate = new Date(batch.expireDate);
+                            const diffDays = (expireDate - now) / (1000 * 60 * 60 * 24);
+                            if (diffDays <= 60 && diffDays >= 0) { // Check for items expiring in the next 60 days
+                                expiring.push({ id: itemId, itemName: masterItem.name, ...batch });
+                            }
+                        });
+                    }
+                }
+            });
+            
+            setLowStockItems(lowStock);
+            setExpiringItems(expiring.sort((a, b) => new Date(a.expireDate) - new Date(b.expireDate)));
+
+        } catch (error) {
+            console.error("Failed to fetch dashboard data:", error);
+            toast.error("Gagal memuat data dashboard.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    fetchData();
   }, [user]);
 
   const chartOptions = { responsive: true, plugins: { legend: { position: 'top' }, title: { display: true, text: 'Aktivitas Gudang 7 Hari Terakhir' } } };
@@ -101,10 +189,9 @@ function Dashboard({ user, setPage }) {
     { name: 'Kategori', icon: <Ikon.Kategori />, page: 'kelola-kategori' }
   ].map(item => ({...item, category: 'master'}));
   
-  // --- 2. MODIFIKASI MENU LAPORAN ---
   const menuLaporan = [
     { name: 'Laporan Depo', icon: <Ikon.Laporan />, page: 'laporan' },
-    { name: 'Laporan ED', icon: <Ikon.Warning />, page: 'laporan-kedaluwarsa' }, // <-- MENU BARU DITAMBAHKAN
+    { name: 'Laporan ED', icon: <Ikon.Warning />, page: 'laporan-kedaluwarsa' },
     { name: 'Dasbor Pusat', icon: <Ikon.KantorPusat />, page: 'kantor-pusat', show: isSuperAdmin || isAdminPusat }
   ].filter(item => typeof item.show === 'undefined' || item.show === true).map(item => ({...item, category: 'laporan'}));
 
@@ -136,8 +223,23 @@ function Dashboard({ user, setPage }) {
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-6">Selamat Datang, {user.fullName}!</h1>
         {!isSales && (
             <>
-              <div className="mb-8"><h2 className="text-xl font-semibold text-gray-700 mb-3">Ringkasan Sistem</h2><div className="grid grid-cols-1 md:grid-cols-3 gap-4"><StatCard title="Total Master Barang" value={loading ? '...' : stats.itemCount} icon="📦" color="bg-blue-100 text-blue-600" /><StatCard title="Total Supplier" value={loading ? '...' : stats.supplierCount} icon="🚚" color="bg-green-100 text-green-600" /><StatCard title="Faktur Tertunda" value={loading ? '...' : stats.pendingInvoices} icon="⏳" color="bg-yellow-100 text-yellow-600" /></div></div>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8"><div className="lg-col-span-2 card bg-white shadow-md p-4">{loading || !chartData ? <div className="text-center p-10">Memuat data grafik...</div> : <Bar options={chartOptions} data={chartData} />}</div><div className="card bg-white shadow-md p-4"><h3 className="font-bold mb-2 text-gray-700">⚠️ Notifikasi Stok Kritis</h3><div className="space-y-2">{loading ? <div className="text-center text-sm">Memuat...</div> : lowStockItems.length === 0 ? <div className="text-center text-sm text-gray-500 p-4">👍 Stok aman.</div> : lowStockItems.slice(0, 5).map(item => <LowStockAlertItem key={item.id} item={item} onClick={() => setPage('kelola-master-barang')}/>)}</div></div></div>
+              <div className="mb-8"><h2 className="text-xl font-semibold text-gray-700 mb-3">Ringkasan Sistem</h2><div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <StatCard title="Total Master Barang" value={stats.itemCount} icon="📦" color="bg-blue-100 text-blue-600" loading={loading} />
+                <StatCard title="Total Supplier" value={stats.supplierCount} icon="🚚" color="bg-green-100 text-green-600" loading={loading} />
+                <StatCard title="Order Perlu Approval" value={stats.orderCount} icon="⏳" color="bg-yellow-100 text-yellow-600" loading={loading} />
+              </div></div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <div className="card bg-white shadow-md p-4"><h3 className="font-bold mb-2 text-gray-700">⚠️ Notifikasi Stok Kritis</h3><div className="space-y-1">{
+                  loading ? <div className="text-center text-sm p-4">Memuat...</div> 
+                  : lowStockItems.length === 0 ? <div className="text-center text-sm text-gray-500 p-4">👍 Stok aman.</div> 
+                  : lowStockItems.slice(0, 3).map(item => <AlertItem key={item.id} item={item} onClick={() => setPage('kelola-master-barang')} badgeText="Stok Kritis" badgeColor="badge-error" />)
+                }</div></div>
+                <div className="card bg-white shadow-md p-4"><h3 className="font-bold mb-2 text-gray-700">🔔 Notifikasi Barang Segera ED</h3><div className="space-y-1">{
+                  loading ? <div className="text-center text-sm p-4">Memuat...</div> 
+                  : expiringItems.length === 0 ? <div className="text-center text-sm text-gray-500 p-4">👍 Tidak ada barang akan ED.</div> 
+                  : expiringItems.slice(0, 3).map(item => <AlertItem key={item.batchId} item={item} onClick={() => setPage('laporan-kedaluwarsa')} badgeText="Segera ED" badgeColor="badge-warning" />)
+                }</div></div>
+              </div>
             </>
         )}
         <div className="mt-10">
