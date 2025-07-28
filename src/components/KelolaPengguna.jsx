@@ -3,7 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { collection, onSnapshot, doc, updateDoc, deleteDoc, getDocs } from 'firebase/firestore';
 import { getAuth, sendPasswordResetEmail } from 'firebase/auth';
 // --- 2. UBAH IMPORT DARI FIREBASECONFIG ---
-import { firestoreDb, db as rtdb } from '../firebaseConfig'; // ganti nama db lama menjadi rtdb
+import { firestoreDb, db as rtdb } from '../firebaseConfig';
+import { ref, onValue } from 'firebase/database'; // <-- INI DIA PERBAIKANNYA
+
 import toast from 'react-hot-toast';
 
 function KelolaPengguna() {
@@ -14,7 +16,7 @@ function KelolaPengguna() {
   const [selectedRole, setSelectedRole] = useState('');
   const [selectedDepot, setSelectedDepot] = useState('');
   const roles = ['Super Admin', 'Admin Pusat', 'Kepala Depo', 'Kepala Gudang', 'Admin Depo', 'Staf Gudang', 'Sales Depo', 'Sopir', 'Helper', 'Menunggu Persetujuan'];
-
+  
   useEffect(() => {
     // --- 3. LOGIKA BARU MENGAMBIL DATA USERS DARI FIRESTORE ---
     const usersCollectionRef = collection(firestoreDb, 'users');
@@ -34,7 +36,10 @@ function KelolaPengguna() {
 
     return () => {
       unsubscribeUsers();
-      unsubscribeDepots();
+      // Pastikan unsubscribeDepots ada sebelum dipanggil
+      if (unsubscribeDepots) {
+        unsubscribeDepots();
+      }
     };
   }, []);
 
@@ -44,7 +49,7 @@ function KelolaPengguna() {
     setSelectedDepot(user.depotId || '');
     document.getElementById('edit_modal').showModal();
   };
-
+  
   // --- 4. LOGIKA BARU UPDATE PENGGUNA KE FIRESTORE ---
   const handleUpdateUser = async () => {
     if (!editingUser) return;
@@ -82,8 +87,6 @@ function KelolaPengguna() {
     if (!window.confirm(`PERINGATAN: Anda akan menghapus data pengguna "${user.fullName}". Aksi ini tidak bisa dibatalkan. Lanjutkan?`)) {
         return;
     }
-    // PENTING: Menghapus data di Firestore tidak menghapus akun autentikasi.
-    // Fitur hapus akun autentikasi memerlukan Firebase Admin SDK di backend.
     try {
         await deleteDoc(doc(firestoreDb, 'users', user.uid));
         toast.success('Data pengguna berhasil dihapus dari database.');
@@ -98,6 +101,7 @@ function KelolaPengguna() {
     return <div className="p-8"><span className="loading loading-spinner"></span></div>;
   }
 
+  // Bagian return JSX tidak perlu diubah, biarkan apa adanya.
   return (
     <div className="p-8">
       <h1 className="text-3xl font-bold mb-6">Kelola Pengguna</h1>
@@ -139,7 +143,7 @@ function KelolaPengguna() {
       </div>
       <dialog id="edit_modal" className="modal">
         <div className="modal-box">
-          <button onClick={() => document.getElementById('edit_modal').close()} className="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
+           <button onClick={() => document.getElementById('edit_modal').close()} className="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button>
           <h3 className="font-bold text-lg">Edit Pengguna: {editingUser?.fullName}</h3>
           <div className="form-control w-full mt-4">
             <label className="label"><span className="label-text">Ubah Jabatan / Role</span></label>
