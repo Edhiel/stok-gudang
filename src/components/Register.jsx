@@ -18,53 +18,51 @@ const EyeOffIcon = ({ onClick }) => (
     </svg>
 );
 
-
 function Register({ setPage }) {
-  [span_0](start_span)const [fullName, setFullName] = useState('');[span_0](end_span)
-  [span_1](start_span)const [email, setEmail] = useState('');[span_1](end_span)
-  [span_2](start_span)const [password, setPassword] = useState('');[span_2](end_span)
-  const [confirmPassword, setConfirmPassword] = useState(''); // State baru
-  [span_3](start_span)const [message, setMessage] = useState('');[span_3](end_span)
-  [span_4](start_span)const [error, setError] = useState('');[span_4](end_span)
-  const [showPassword, setShowPassword] = useState(false); // State baru
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false); // State baru
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const handleRegister = async (e) => {
-    [span_5](start_span)e.preventDefault();[span_5](end_span)
+    e.preventDefault();
     setMessage('');
     setError('');
 
-    // Validasi konfirmasi password
     if (password !== confirmPassword) {
       setError('Password dan konfirmasi password tidak cocok.');
       return;
     }
     
     try {
-      [span_6](start_span)const userCredential = await createUserWithEmailAndPassword(auth, email, password);[span_6](end_span)
-      [span_7](start_span)const user = userCredential.user;[span_7](end_span)
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
 
       await set(ref(db, 'users/' + user.uid), {
         fullName: fullName,
         email: email,
         role: 'Menunggu Persetujuan',
         depotId: null,
-      [span_8](start_span)});[span_8](end_span)
+      });
 
-      [span_9](start_span)setMessage('Registrasi berhasil! Akun Anda akan segera diaktifkan oleh Admin.');[span_9](end_span)
-      [span_10](start_span)setFullName('');[span_10](end_span)
-      [span_11](start_span)setEmail('');[span_11](end_span)
-      [span_12](start_span)setPassword('');[span_12](end_span)
+      setMessage('Registrasi berhasil! Akun Anda akan segera diaktifkan oleh Admin.');
+      setFullName('');
+      setEmail('');
+      setPassword('');
       setConfirmPassword('');
     } catch (err) {
-      [span_13](start_span)if (err.code === 'auth/email-already-in-use') {[span_13](end_span)
-        [span_14](start_span)setError('Email ini sudah terdaftar.');[span_14](end_span)
-      [span_15](start_span)} else if (err.code === 'auth/weak-password') {[span_15](end_span)
-        [span_16](start_span)setError('Password terlalu lemah. Minimal 6 karakter.');[span_16](end_span)
-      [span_17](start_span)} else {[span_17](end_span)
-        [span_18](start_span)setError('Terjadi kesalahan. Coba lagi nanti.');[span_18](end_span)
+      if (err.code === 'auth/email-already-in-use') {
+        setError('Email ini sudah terdaftar.');
+      } else if (err.code === 'auth/weak-password') {
+        setError('Password terlalu lemah. Minimal 6 karakter.');
+      } else {
+        setError('Terjadi kesalahan. Coba lagi nanti.');
       }
-      [span_19](start_span)console.error("Error saat registrasi:", err);[span_19](end_span)
+      console.error("Error saat registrasi:", err);
     }
   };
 
@@ -86,7 +84,6 @@ function Register({ setPage }) {
             <input type="email" placeholder="contoh@email.com" className="input input-bordered" required value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
 
-          {/* Input Password dengan Ikon Mata */}
           <div className="form-control">
             <label className="label"><span className="label-text">Password</span></label>
             <div className="relative">
@@ -107,7 +104,6 @@ function Register({ setPage }) {
             </div>
           </div>
 
-          {/* Input Konfirmasi Password dengan Ikon Mata */}
           <div className="form-control">
             <label className="label"><span className="label-text">Konfirmasi Password</span></label>
             <div className="relative">
