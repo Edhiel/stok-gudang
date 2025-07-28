@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-// --- 1. IMPORT BARU DARI FIRESTORE ---
 import { doc, getDoc } from "firebase/firestore";
-// --- 2. UBAH IMPORT DARI FIREBASECONFIG ---
 import { auth, firestoreDb } from './firebaseConfig';
 import { Toaster } from 'react-hot-toast';
+// ... (semua import komponen lainnya tetap sama)
 import Login from './components/Login';
 import Register from './components/Register';
 import Navbar from './components/Navbar';
@@ -33,6 +32,7 @@ import TransferStok from './components/TransferStok';
 import KelolaToko from './components/KelolaToko';
 import KelolaLokasi from './components/KelolaLokasi';
 
+
 function App() {
   const [userProfile, setUserProfile] = useState(null);
   const [authPage, setAuthPage] = useState('login');
@@ -42,14 +42,11 @@ function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
-        // --- 3. LOGIKA BARU UNTUK MENGAMBIL DATA DARI FIRESTORE ---
         const userDocRef = doc(firestoreDb, "users", user.uid);
         getDoc(userDocRef).then((docSnap) => {
           if (docSnap.exists()) {
             setUserProfile({ uid: user.uid, ...docSnap.data() });
-          } 
-          else {
-            // Jika data user tidak ada di firestore (misal user lama), logout paksa
+          } else {
             console.error("No such user document in Firestore!");
             signOut(auth);
           }
@@ -96,34 +93,30 @@ function App() {
     const canAccessMasterData = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(userProfile.role);
     const canViewLaporan = ['Super Admin', 'Admin Pusat', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(userProfile.role);
     const canProcessOrder = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(userProfile.role);
-    
-    // --- VARIABEL BARU UNTUK SOPIR & HELPER ---
     const isDriverOrHelper = ['Sopir', 'Helper Depo'].includes(userProfile.role);
 
-
+    // Dengan menambahkan || isSuperAdmin, Super Admin bisa akses semua menu
     switch (mainPage) {
       case 'buat-order':
         if (isSales || isSuperAdmin) return <BuatOrder userProfile={userProfile} />;
         break;
       case 'proses-order':
-        if (canProcessOrder) return <ProsesOrder userProfile={userProfile} />;
+        if (canProcessOrder || isSuperAdmin) return <ProsesOrder userProfile={userProfile} />;
         break;
       case 'stok-masuk':
-        if (canDoGudangTransaction) return <StokMasuk userProfile={userProfile} />;
+        if (canDoGudangTransaction || isSuperAdmin) return <StokMasuk userProfile={userProfile} />;
         break;
       case 'stok-keluar':
-        if (canDoGudangTransaction) return <StokKeluar userProfile={userProfile} />;
+        if (canDoGudangTransaction || isSuperAdmin) return <StokKeluar userProfile={userProfile} />;
         break;
-      // --- UBAH CASE INI ---
       case 'manajemen-retur':
-        if (canDoGudangTransaction || isDriverOrHelper) return <ManajemenRetur userProfile={userProfile} />;
+        if (canDoGudangTransaction || isDriverOrHelper || isSuperAdmin) return <ManajemenRetur userProfile={userProfile} />;
         break;
       case 'stock-opname':
-        if (canDoGudangTransaction) return <StockOpname userProfile={userProfile} />;
+        if (canDoGudangTransaction || isSuperAdmin) return <StockOpname userProfile={userProfile} />;
         break;
-      // --- UBAH CASE INI ---
       case 'pengeluaran-barang':
-        if (canDoGudangTransaction || isDriverOrHelper) return <ProsesPengeluaranGudang userProfile={userProfile} />;
+        if (canDoGudangTransaction || isDriverOrHelper || isSuperAdmin) return <ProsesPengeluaranGudang userProfile={userProfile} />;
         break;
       case 'transfer-stok':
         if (canAccessMasterData || isSuperAdmin) return <TransferStok userProfile={userProfile} />;
@@ -131,28 +124,28 @@ function App() {
       case 'faktur-tertunda':
         return <FakturTertunda userProfile={userProfile} />;
       case 'proses-faktur-tertunda':
-        if (canProcessOrder) return <KelolaFakturTertunda userProfile={userProfile} />;
+        if (canProcessOrder || isSuperAdmin) return <KelolaFakturTertunda userProfile={userProfile} />;
         break;
       case 'kelola-master-barang':
-        if (canAccessMasterData) return <KelolaMasterBarang userProfile={userProfile} />;
+        if (canAccessMasterData || isSuperAdmin) return <KelolaMasterBarang userProfile={userProfile} />;
         break;
       case 'kelola-toko':
-        if (canAccessMasterData) return <KelolaToko userProfile={userProfile} />;
+        if (canAccessMasterData || isSuperAdmin) return <KelolaToko userProfile={userProfile} />;
         break;
       case 'kelola-supplier':
-        if (canAccessMasterData) return <KelolaSupplier userProfile={userProfile} />;
+        if (canAccessMasterData || isSuperAdmin) return <KelolaSupplier userProfile={userProfile} />;
         break;
       case 'kelola-kategori':
-        if (canAccessMasterData) return <KelolaKategori userProfile={userProfile} />;
+        if (canAccessMasterData || isSuperAdmin) return <KelolaKategori userProfile={userProfile} />;
         break;
       case 'laporan':
-        if (canViewLaporan) return <Laporan userProfile={userProfile} />;
+        if (canViewLaporan || isSuperAdmin) return <Laporan userProfile={userProfile} />;
         break;
       case 'laporan-kedaluwarsa':
-        if (canViewLaporan) return <LaporanKedaluwarsa userProfile={userProfile} />;
+        if (canViewLaporan || isSuperAdmin) return <LaporanKedaluwarsa userProfile={userProfile} />;
         break;
       case 'kantor-pusat':
-        if (isSuperAdmin || isAdminPusat) return <KantorPusat userProfile={userProfile} />;
+        if (isAdminPusat || isSuperAdmin) return <KantorPusat userProfile={userProfile} />;
         break;
       case 'kelola-pengguna':
         if (isSuperAdmin) return <KelolaPengguna userProfile={userProfile} />;
@@ -161,7 +154,7 @@ function App() {
         if (isSuperAdmin) return <KelolaDepo userProfile={userProfile} />;
         break;
       case 'kelola-lokasi':
-        if (canAccessMasterData) return <KelolaLokasi userProfile={userProfile} />;
+        if (canAccessMasterData || isSuperAdmin) return <KelolaLokasi userProfile={userProfile} />;
         break;
       case 'alokasi-supplier':
         if (isSuperAdmin) return <AlokasiSupplier userProfile={userProfile} />;
