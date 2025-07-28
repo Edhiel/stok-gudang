@@ -15,6 +15,8 @@ const TabReturBaik = ({ userProfile, locations, syncOfflineReturns, setActiveTab
   const [storeName, setStoreName] = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [selectedLocation, setSelectedLocation] = useState('');
+  // --- STATE BARU ---
+  const [expireDate, setExpireDate] = useState('');
   const [transactionItems, setTransactionItems] = useState([]);
   const [showScanner, setShowScanner] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -40,20 +42,24 @@ const TabReturBaik = ({ userProfile, locations, syncOfflineReturns, setActiveTab
     setSelectedItem(item);
     setSearchTerm(item.name);
   };
-  
+
   const handleAddItemToList = () => {
-    if (!selectedItem || !selectedLocation) { 
-        toast.error("Barang dan Lokasi Simpan wajib diisi.");
+    // --- VALIDASI BARU ---
+    if (!selectedItem || !selectedLocation || !expireDate) { 
+        toast.error("Barang, Lokasi Simpan, dan Tgl. Kedaluwarsa wajib diisi.");
         return; 
     }
     const totalPcs = (Number(dosQty) * (selectedItem.conversions.Dos?.inPcs || 1)) + (Number(packQty) * (selectedItem.conversions.Pack?.inPcs || 1)) + (Number(pcsQty));
     if (totalPcs <= 0) { toast.error("Masukkan jumlah yang valid."); return; }
+    
+    // --- ITEM BARU DENGAN ED ---
     setTransactionItems([...transactionItems, { 
         id: selectedItem.id, name: selectedItem.name, 
         quantityInPcs: totalPcs, displayQty: `${dosQty}.${packQty}.${pcsQty}`,
-        locationId: selectedLocation
+        locationId: selectedLocation,
+        expireDate: expireDate // <-- Data ED ditambahkan
     }]);
-    setSelectedItem(null); setSearchTerm(''); setDosQty(0); setPackQty(0); setPcsQty(0); setSelectedLocation('');
+    setSelectedItem(null); setSearchTerm(''); setDosQty(0); setPackQty(0); setPcsQty(0); setSelectedLocation(''); setExpireDate('');
   };
   
   const handleRemoveFromList = (indexToRemove) => {
@@ -78,7 +84,8 @@ const TabReturBaik = ({ userProfile, locations, syncOfflineReturns, setActiveTab
         const success = await addReturnToQueue(returnData);
         if (success) {
             toast.success("Koneksi offline. Retur disimpan lokal.");
-            setTransactionItems([]); setStoreName(''); setInvoiceNumber('');
+            setTransactionItems([]);
+            setStoreName(''); setInvoiceNumber('');
             if (setActiveTab) setActiveTab('riwayat');
         } else {
             toast.error("Gagal menyimpan retur di penyimpanan lokal.");
@@ -102,10 +109,13 @@ const TabReturBaik = ({ userProfile, locations, syncOfflineReturns, setActiveTab
         <div className="p-4 border rounded-lg bg-base-200 space-y-4">
           <div className="form-control"><label className="label"><span className="label-text">Scan atau Cari Barang</span></label><div className="join w-full"><input type="text" placeholder="Ketik nama barang..." className="input input-bordered join-item w-full" value={searchTerm} onChange={(e) => {setSearchTerm(e.target.value); setSelectedItem(null);}}/><button type="button" onClick={() => setShowScanner(true)} className="btn btn-primary join-item">Scan</button></div></div>
           {searchTerm.length > 0 && !selectedItem && (<ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">{items.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase())).map(item => (<li key={item.id}><a onClick={() => handleSelectItem(item)}>{item.name}</a></li>))}</ul>)}
-          {selectedItem && (<div className="mt-2 p-2 border rounded-md"><p className="font-bold">Barang Terpilih: <span className="text-secondary">{selectedItem.name}</span></p><div className="divider my-2"></div><div className="flex items-end gap-4 flex-wrap"><div className="form-control"><label className="label-text">DOS</label><input type="number" value={dosQty} onChange={(e) => setDosQty(e.target.valueAsNumber || 0)} className="input input-bordered input-sm" /></div><div className="form-control"><label className="label-text">PACK</label><input type="number" value={packQty} onChange={(e) => setPackQty(e.target.valueAsNumber || 0)} className="input input-bordered input-sm" /></div><div className="form-control"><label className="label-text">PCS</label><input type="number" value={pcsQty} onChange={(e) => setPcsQty(e.target.valueAsNumber || 0)} className="input input-bordered input-sm" /></div><div className="form-control flex-grow"><label className="label-text font-bold">Simpan ke Lokasi</label><select className="select select-sm select-bordered" value={selectedLocation} onChange={e => setSelectedLocation(e.target.value)}><option value="">Pilih Lokasi</option>{locations.map(loc => <option key={loc.id} value={loc.id}>{loc.namaLokasi}</option>)}</select></div><button type="button" onClick={handleAddItemToList} className="btn btn-secondary btn-sm">Tambah</button></div></div>)}
+          {selectedItem && (<div className="mt-2 p-2 border rounded-md"><p className="font-bold">Barang Terpilih: <span className="text-secondary">{selectedItem.name}</span></p><div className="divider my-2"></div><div className="flex items-end gap-4 flex-wrap"><div className="form-control"><label className="label-text">DOS</label><input type="number" value={dosQty} onChange={(e) => setDosQty(e.target.valueAsNumber || 0)} className="input input-bordered input-sm" /></div><div className="form-control"><label className="label-text">PACK</label><input type="number" value={packQty} onChange={(e) => setPackQty(e.target.valueAsNumber || 0)} className="input input-bordered input-sm" /></div><div className="form-control"><label className="label-text">PCS</label><input type="number" value={pcsQty} onChange={(e) => setPcsQty(e.target.valueAsNumber || 0)} className="input input-bordered input-sm" /></div>
+          {/* --- INPUT ED BARU --- */}
+          <div className="form-control"><label className="label-text font-bold">Tgl. Kedaluwarsa</label><input type="date" value={expireDate} onChange={e => setExpireDate(e.target.value)} className="input input-sm input-bordered" /></div>
+          <div className="form-control flex-grow"><label className="label-text font-bold">Simpan ke Lokasi</label><select className="select select-sm select-bordered" value={selectedLocation} onChange={e => setSelectedLocation(e.target.value)}><option value="">Pilih Lokasi</option>{locations.map(loc => <option key={loc.id} value={loc.id}>{loc.namaLokasi}</option>)}</select></div><button type="button" onClick={handleAddItemToList} className="btn btn-secondary btn-sm">Tambah</button></div></div>)}
         </div>
         <div className="divider">Daftar Barang dalam Retur Ini</div>
-        <div className="overflow-x-auto"><table className="table w-full"><thead><tr><th>Nama Barang</th><th>Jumlah Retur</th><th>Lokasi</th><th>Aksi</th></tr></thead><tbody>{transactionItems.map((item, index) => (<tr key={index}><td>{item.name}</td><td>{item.displayQty}</td><td>{item.locationId}</td><td><button onClick={() => handleRemoveFromList(index)} className="btn btn-xs btn-error">Hapus</button></td></tr>))}</tbody></table></div>
+        <div className="overflow-x-auto"><table className="table w-full"><thead><tr><th>Nama Barang</th><th>Jumlah Retur</th><th>Lokasi</th><th>Tgl. ED</th><th>Aksi</th></tr></thead><tbody>{transactionItems.map((item, index) => (<tr key={index}><td>{item.name}</td><td>{item.displayQty}</td><td>{item.locationId}</td><td>{item.expireDate}</td><td><button onClick={() => handleRemoveFromList(index)} className="btn btn-xs btn-error">Hapus</button></td></tr>))}</tbody></table></div>
         <div className="mt-6 flex justify-end">
             <button onClick={handleSaveTransaction} disabled={isSubmitting} className="btn btn-success btn-lg">
                 {isSubmitting ? <span className="loading loading-spinner"></span> : 'Simpan Retur Baik'}
@@ -116,6 +126,7 @@ const TabReturBaik = ({ userProfile, locations, syncOfflineReturns, setActiveTab
   );
 };
 
+// --- Komponen TabReturRusak dan lainnya tetap sama ---
 const TabReturRusak = ({ userProfile, locations, syncOfflineReturns, setActiveTab }) => {
   const [items, setItems] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -141,7 +152,7 @@ const TabReturRusak = ({ userProfile, locations, syncOfflineReturns, setActiveTa
       setItems(itemList);
     });
   }, [userProfile.depotId]);
-  
+
   const handleBarcodeDetected = (scannedBarcode) => {
     const foundItem = items.find(item => item.barcodePcs === scannedBarcode || item.barcodeDos === scannedBarcode);
     if (foundItem) handleSelectItem(foundItem); else toast.error("Barang tidak ditemukan.");
@@ -159,7 +170,7 @@ const TabReturRusak = ({ userProfile, locations, syncOfflineReturns, setActiveTa
     setSelectedItem(item);
     setSearchTerm(item.name);
   };
-  
+
   const handleAddItemToList = () => {
     if (!selectedItem) { toast.error("Pilih barang dulu."); return; }
     if (returnOrigin === 'gudang' && !sourceLocation) { toast.error("Pilih lokasi asal barang di gudang."); return; }
@@ -179,7 +190,6 @@ const TabReturRusak = ({ userProfile, locations, syncOfflineReturns, setActiveTa
         quantityInPcs: totalPcs, displayQty: `${dosQty}.${packQty}.${pcsQty}`,
         sourceLocationId: returnOrigin === 'gudang' ? sourceLocation : null
     }]);
-
     setSelectedItem(null); setSearchTerm(''); setDosQty(0); setPackQty(0); setPcsQty(0); setSourceLocation('');
   };
 
@@ -205,7 +215,8 @@ const TabReturRusak = ({ userProfile, locations, syncOfflineReturns, setActiveTa
         const success = await addReturnToQueue(returnData);
         if (success) {
             toast.success("Koneksi offline. Retur disimpan lokal.");
-            setTransactionItems([]); setDescription(''); setReturnOrigin('toko'); setStoreName(''); setInvoiceNumber('');
+            setTransactionItems([]);
+            setDescription(''); setReturnOrigin('toko'); setStoreName(''); setInvoiceNumber('');
             if (setActiveTab) setActiveTab('riwayat');
         } else {
             toast.error("Gagal menyimpan retur di penyimpanan lokal.");
@@ -275,7 +286,7 @@ const TabKirimPusat = ({ userProfile }) => {
   const [showProcessForm, setShowProcessForm] = useState(false);
   const [processAction, setProcessAction] = useState('kirim');
   const [documentNumber, setDocumentNumber] = useState('');
-  
+
   useEffect(() => {
     if (!userProfile.depotId) return;
     const masterItemsRef = ref(firebaseDb, 'master_items');
@@ -309,7 +320,7 @@ const TabKirimPusat = ({ userProfile }) => {
   const handleSelectItem = (itemId) => {
     setSelectedForShipment(prev => ({ ...prev, [itemId]: !prev[itemId] }));
   };
-  
+
   const handleProcessSelected = () => {
     const selectedIds = Object.keys(selectedForShipment).filter(key => selectedForShipment[key]);
     if (selectedIds.length === 0) {
@@ -327,6 +338,7 @@ const TabKirimPusat = ({ userProfile }) => {
     const selectedIds = Object.keys(selectedForShipment).filter(key => selectedForShipment[key]);
     const itemsToAction = damagedItems.filter(item => selectedIds.includes(item.id));
     const actionType = processAction === 'kirim' ? 'Pengiriman BS ke Pusat' : 'Pemusnahan BS';
+    
     try {
         const updates = {};
         const transactionItems = [];
@@ -354,7 +366,7 @@ const TabKirimPusat = ({ userProfile }) => {
         console.error(err);
     }
   };
-  
+
   const formatToDPP = (totalPcs, conversions) => {
     if (!totalPcs || !conversions) return '0.0.0';
     const dosInPcs = conversions.Dos?.inPcs || (conversions.Pack?.inPcs || 1);
@@ -391,8 +403,10 @@ const TabKirimPusat = ({ userProfile }) => {
         <table className="table w-full">
             <thead className='bg-gray-200'><tr><th><input type="checkbox" className="checkbox print:hidden" onChange={(e) => setSelectedForShipment(filteredItems.reduce((acc, item) => ({...acc, [item.id]: e.target.checked}), {}))} /></th><th>Nama Barang</th><th>Jumlah Rusak</th><th>Supplier</th></tr></thead>
             <tbody>
-                {loading ? (<tr><td colSpan="4" className="text-center"><span className="loading loading-dots"></span></td></tr>) : 
-                 filteredItems.length === 0 ? (<tr><td colSpan="4" className="text-center">Tidak ada stok rusak.</td></tr>) :
+                {loading 
+                ? (<tr><td colSpan="4" className="text-center"><span className="loading loading-dots"></span></td></tr>) : 
+                 filteredItems.length === 0 ?
+                 (<tr><td colSpan="4" className="text-center">Tidak ada stok rusak.</td></tr>) :
                  (filteredItems.map(item => ( <tr key={item.id}><th><label><input type="checkbox" checked={!!selectedForShipment[item.id]} onChange={() => handleSelectItem(item.id)} className="checkbox print:hidden" /></label></th><td>{item.name}</td><td>{formatToDPP(item.damagedStockInPcs, item.conversions)}</td><td>{item.supplierName}</td></tr> )))}
             </tbody>
         </table>
@@ -418,7 +432,6 @@ const TabRiwayat = ({ userProfile }) => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [filterType, setFilterType] = useState('');
-
   const transactionTypes = ['Retur Baik', 'Retur Rusak', 'Pengiriman BS ke Pusat', 'Pemusnahan BS'];
 
   useEffect(() => {
@@ -457,7 +470,7 @@ const TabRiwayat = ({ userProfile }) => {
   
   const monthOptions = Array.from({ length: 6 }, (_, i) => { const d = new Date(); d.setMonth(d.getMonth() - i); return { value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: d.toLocaleString('id-ID', { month: 'long', year: 'numeric' }) }; });
   const getBadgeColor = (type) => { switch(type) { case 'Retur Baik': return 'badge-success'; case 'Retur Rusak': return 'badge-warning'; case 'Pengiriman BS ke Pusat': return 'badge-info'; case 'Pemusnahan BS': return 'badge-error'; default: return 'badge-ghost'; } };
-
+  
   return (
     <div className="p-4 space-y-4">
       <div className="p-4 bg-base-200 rounded-lg mb-4 grid grid-cols-1 md:grid-cols-4 gap-4"><div className="form-control"><label className="label-text">Dari Tanggal</label><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="input input-bordered" /></div><div className="form-control"><label className="label-text">Sampai Tanggal</label><input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="input input-bordered" /></div><div className="form-control"><label className="label-text">Atau Pilih Bulan</label><select onChange={handleMonthSelect} className="select select-bordered"><option value="">Pilih Bulan...</option>{monthOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></div><div className="form-control"><label className="label-text">Filter Tipe</label><select value={filterType} onChange={e => setFilterType(e.target.value)} className="select select-bordered"><option value="">Semua Tipe</option>{transactionTypes.map(type => <option key={type} value={type}>{type}</option>)}</select></div></div>
@@ -474,13 +487,14 @@ function ManajemenRetur({ userProfile }) {
 
   useEffect(() => {
       if (!userProfile.depotId) return;
-      const locationsRef = ref(db, `depots/${userProfile.depotId}/locations`);
+      const locationsRef = ref(firebaseDb, `depots/${userProfile.depotId}/locations`);
       onValue(locationsRef, (snapshot) => {
           const data = snapshot.val() || {};
           setLocations(Object.keys(data).map(key => ({ id: key, ...data[key] })));
       });
   }, [userProfile]);
 
+  // --- LOGIKA SINKRONISASI BARU ---
   const syncOfflineReturns = async (returnsToSync, isOnlineSave = false) => {
     if (isSyncing && !isOnlineSave) return;
     setIsSyncing(true);
@@ -490,12 +504,34 @@ function ManajemenRetur({ userProfile }) {
             if (returnData.type === 'Retur Baik') {
                 for (const transItem of returnData.items) {
                     const stockRef = ref(firebaseDb, `depots/${returnData.depotId}/stock/${transItem.id}`);
-                    await runTransaction(stockRef, (s) => { if(!s) s = { totalStockInPcs: 0, locations: {} }; s.totalStockInPcs = (s.totalStockInPcs || 0) + transItem.quantityInPcs; s.locations = s.locations || {}; s.locations[transItem.locationId] = (s.locations[transItem.locationId] || 0) + transItem.quantityInPcs; return s; });
+                    const batchKey = push(ref(firebaseDb, `depots/${returnData.depotId}/stock/${transItem.id}/batches`)).key;
+                    await runTransaction(stockRef, (s) => { 
+                        if(!s) s = { totalStockInPcs: 0, batches: {} }; 
+                        s.batches = s.batches || {};
+                        s.totalStockInPcs = (s.totalStockInPcs || 0) + transItem.quantityInPcs; 
+                        s.batches[batchKey] = {
+                            quantity: transItem.quantityInPcs,
+                            expireDate: transItem.expireDate,
+                            locationId: transItem.locationId,
+                            receivedAt: serverTimestamp(),
+                            receiptId: `RETUR-${returnData.fromStore}`
+                        };
+                        return s; 
+                    });
                 }
             } else if (returnData.type === 'Retur Rusak') {
                  for (const transItem of returnData.items) {
                     const stockRef = ref(firebaseDb, `depots/${returnData.depotId}/stock/${transItem.id}`);
-                    await runTransaction(stockRef, (s) => { if (!s) s = { totalStockInPcs: 0, damagedStockInPcs: 0, locations: {} }; s.damagedStockInPcs = (s.damagedStockInPcs || 0) + transItem.quantityInPcs; if (returnData.origin === 'gudang') { if ((s.totalStockInPcs || 0) < transItem.quantityInPcs) { throw new Error(`Stok ${transItem.name} tidak cukup.`); } s.totalStockInPcs -= transItem.quantityInPcs; s.locations[transItem.sourceLocationId] = (s.locations[transItem.sourceLocationId] || 0) - transItem.quantityInPcs; } return s; });
+                    await runTransaction(stockRef, (s) => { 
+                        if (!s) s = { totalStockInPcs: 0, damagedStockInPcs: 0, locations: {} }; 
+                        s.damagedStockInPcs = (s.damagedStockInPcs || 0) + transItem.quantityInPcs; 
+                        if (returnData.origin === 'gudang') { 
+                            if ((s.totalStockInPcs || 0) < transItem.quantityInPcs) { throw new Error(`Stok ${transItem.name} tidak cukup.`); } 
+                            s.totalStockInPcs -= transItem.quantityInPcs; 
+                            s.locations[transItem.sourceLocationId] = (s.locations[transItem.sourceLocationId] || 0) - transItem.quantityInPcs; 
+                        } 
+                        return s; 
+                    });
                 }
             }
             const transactionsRef = ref(firebaseDb, `depots/${returnData.depotId}/transactions`);
