@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ref, onValue, query, orderByChild, equalTo, update, runTransaction } from 'firebase/database';
-import { db } from '../firebaseConfig';
+// --- 1. IMPORT BARU DARI FIRESTORE ---
+import { collection, query, where, onSnapshot, doc, updateDoc, runTransaction } from 'firebase/firestore';
+import { firestoreDb } from '../firebaseConfig';
 import toast from 'react-hot-toast';
 
 function ProsesOrder({ userProfile }) {
@@ -12,39 +13,39 @@ function ProsesOrder({ userProfile }) {
     const [searchTerm, setSearchTerm] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
-
+    
     // State untuk modal
     const [selectedOrder, setSelectedOrder] = useState(null);
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
     const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
     const [invoiceNumberInput, setInvoiceNumberInput] = useState('');
 
+    // --- 2. LOGIKA BARU MENGAMBIL DATA ORDER DARI FIRESTORE ---
     useEffect(() => {
         if (!userProfile.depotId) return;
         
-        const ordersRef = ref(db, `depots/${userProfile.depotId}/salesOrders`);
-        const allPendingOrdersQuery = query(ordersRef, orderByChild('status'));
+        const ordersRef = collection(firestoreDb, `depots/${userProfile.depotId}/salesOrders`);
+        const q = query(ordersRef, where('status', 'in', ['Menunggu Approval Admin', 'Siap Dikirim']));
 
-        const unsubscribe = onValue(allPendingOrdersQuery, (snapshot) => {
-            const data = snapshot.val() || {};
-            const orderList = Object.keys(data)
-                .map(key => ({ id: key, ...data[key] }))
-                .filter(o => o.status === 'Menunggu Approval Admin' || o.status === 'Siap Dikirim')
-                .sort((a, b) => b.createdAt - a.createdAt);
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const orderList = snapshot.docs
+                .map(doc => ({ id: doc.id, ...doc.data() }))
+                .sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis());
             setOrders(orderList);
             setLoading(false);
         });
-
+        
         return () => unsubscribe();
     }, [userProfile.depotId]);
 
     const filteredOrders = orders.filter(order => {
-        const orderDate = new Date(order.createdAt);
+        const orderDate = order.createdAt.toDate();
         const start = startDate ? new Date(startDate).setHours(0,0,0,0) : null;
         const end = endDate ? new Date(endDate).setHours(23,59,59,999) : null;
 
         const isAfterStartDate = start ? orderDate >= start : true;
         const isBeforeEndDate = end ? orderDate <= end : true;
+        
         const matchesSearch = searchTerm ? 
             (order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
              order.storeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -60,42 +61,51 @@ function ProsesOrder({ userProfile }) {
 
     const handleApprove = async (orderId) => {
         if (!window.confirm("Apakah Anda yakin ingin menyetujui order ini?")) return;
-        const orderRef = ref(db, `depots/${userProfile.depotId}/salesOrders/${orderId}`);
+        const orderDocRef = doc(firestoreDb, `depots/${userProfile.depotId}/salesOrders/${orderId}`);
         try {
-            await update(orderRef, { status: 'Siap Dikirim' });
+            await updateDoc(orderDocRef, { status: 'Siap Dikirim' });
             toast.success("Order berhasil disetujui.");
         } catch (error) { toast.error("Gagal menyetujui order."); }
     };
 
+    // --- 3. LOGIKA BARU MENGEMBALIKAN STOK DENGAN TRANSAKSI FIRESTORE ---
     const handleReject = async (order) => {
         if (!window.confirm("Apakah Anda yakin ingin MEMBATALKAN order ini? Stok akan dikembalikan.")) return;
+        
         try {
-            for (const item of order.items) {
-                const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${item.id}`);
-                await runTransaction(stockRef, (currentStock) => {
-                    if (currentStock) {
-                        currentStock.totalStockInPcs = (currentStock.totalStockInPcs || 0) + item.quantityInPcs;
-                        currentStock.allocatedStockInPcs = (currentStock.allocatedStockInPcs || 0) - item.quantityInPcs;
+            await runTransaction(firestoreDb, async (transaction) => {
+                for (const item of order.items) {
+                    const stockDocRef = doc(firestoreDb, `depots/${userProfile.depotId}/stock/${item.id}`);
+                    const stockDoc = await transaction.get(stockDocRef);
+                    if (stockDoc.exists()) {
+                        const newTotal = (stockDoc.data().totalStockInPcs || 0) + item.quantityInPcs;
+                        const newAllocated = (stockDoc.data().allocatedStockInPcs || 0) - item.quantityInPcs;
+                        transaction.update(stockDocRef, { 
+                            totalStockInPcs: newTotal, 
+                            allocatedStockInPcs: newAllocated < 0 ? 0 : newAllocated 
+                        });
                     }
-                    return currentStock;
-                });
-            }
-            const orderRef = ref(db, `depots/${userProfile.depotId}/salesOrders/${order.id}`);
-            await update(orderRef, { status: 'Dibatalkan' });
+                }
+                const orderDocRef = doc(firestoreDb, `depots/${userProfile.depotId}/salesOrders/${order.id}`);
+                transaction.update(orderDocRef, { status: 'Dibatalkan' });
+            });
             toast.success("Order berhasil dibatalkan dan stok telah dikembalikan.");
-        } catch (error) { toast.error(`Gagal membatalkan order: ${error.message}`); }
+        } catch (error) { 
+            toast.error(`Gagal membatalkan order: ${error.message}`); 
+            console.error(error);
+        }
     };
-    
+
     const handleSaveInvoiceNumber = async () => {
         if (!invoiceNumberInput) {
             return toast.error("Nomor faktur tidak boleh kosong.");
         }
-        const orderRef = ref(db, `depots/${userProfile.depotId}/salesOrders/${selectedOrder.id}`);
+        const orderDocRef = doc(firestoreDb, `depots/${userProfile.depotId}/salesOrders/${selectedOrder.id}`);
         try {
-            await update(orderRef, { 
+            await updateDoc(orderDocRef, { 
                 status: 'Siap Dikirim (Sudah Difakturkan)',
                 invoiceNumber: invoiceNumberInput,
-                processedBy: userProfile.fullName // Mencatat siapa yg memproses faktur
+                processedBy: userProfile.fullName
             });
             toast.success("Nomor faktur berhasil disimpan. Order siap dikeluarkan gudang.");
             setIsInvoiceModalOpen(false);
@@ -109,7 +119,8 @@ function ProsesOrder({ userProfile }) {
         let content = '';
         order.items.forEach(item => {
             const [dos, pack, pcs] = item.displayQty.split('.');
-            content += `${item.id} ${dos} ${pack} ${pcs}\n`;
+            // Kita butuh Kode Internal (ND6) untuk ekspor ini
+            content += `${item.kodeInternal || item.id} ${dos} ${pack} ${pcs}\n`;
         });
         const blob = new Blob([content], { type: 'text/plain;charset=utf-8;' });
         const link = document.createElement("a");
@@ -126,10 +137,10 @@ function ProsesOrder({ userProfile }) {
         setSelectedOrder(order);
         setIsDetailModalOpen(true);
     };
-
+    
     const openInvoiceModal = (order) => {
         setSelectedOrder(order);
-        setInvoiceNumberInput(order.invoiceNumber || ''); // Isi jika sudah ada
+        setInvoiceNumberInput(order.invoiceNumber || '');
         setIsInvoiceModalOpen(true);
     };
 
@@ -161,11 +172,13 @@ function ProsesOrder({ userProfile }) {
                             <tr><th>Tanggal</th><th>No. Order</th><th>Nama Toko</th><th>Sales</th><th className="text-center">Aksi</th></tr>
                         </thead>
                         <tbody>
-                            {loading ? (<tr><td colSpan="5" className="text-center"><span className="loading loading-dots"></span></td></tr>)
-                            : filteredOrders.length === 0 ? (<tr><td colSpan="5" className="text-center">Tidak ada data untuk ditampilkan.</td></tr>)
+                            {loading ?
+                            (<tr><td colSpan="5" className="text-center"><span className="loading loading-dots"></span></td></tr>)
+                            : filteredOrders.length === 0 ?
+                            (<tr><td colSpan="5" className="text-center">Tidak ada data untuk ditampilkan.</td></tr>)
                             : (filteredOrders.map(order => (
                                 <tr key={order.id} className="hover">
-                                    <td>{new Date(order.createdAt).toLocaleDateString('id-ID')}</td>
+                                    <td>{order.createdAt.toDate().toLocaleDateString('id-ID')}</td>
                                     <td className="font-semibold">{order.orderNumber}</td>
                                     <td>{order.storeName}</td>
                                     <td>{order.salesName}</td>
@@ -191,7 +204,23 @@ function ProsesOrder({ userProfile }) {
                 </div>
             </div>
 
-            {isDetailModalOpen && <div className="modal modal-open">{/* ... (Modal Detail sama seperti sebelumnya) ... */}</div>}
+            {isDetailModalOpen && selectedOrder && (
+                <div className="modal modal-open">
+                    <div className="modal-box">
+                        <h3 className="font-bold text-lg">Detail Order: {selectedOrder.orderNumber}</h3>
+                        <p className="py-2 text-sm">Toko: {selectedOrder.storeName}</p>
+                        <div className="divider"></div>
+                        <ul className="list-disc list-inside">
+                            {selectedOrder.items.map(item => (
+                                <li key={item.id}>{item.name} - <strong>{item.displayQty}</strong></li>
+                            ))}
+                        </ul>
+                        <div className="modal-action">
+                            <button onClick={() => setIsDetailModalOpen(false)} className="btn">Tutup</button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {isInvoiceModalOpen && (
                 <div className="modal modal-open">
