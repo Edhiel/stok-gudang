@@ -1,60 +1,62 @@
 import React, { useState, useEffect } from 'react';
-// Tambahkan 'update' dan 'remove' dari firebase
-import { ref, set, onValue, update, remove } from 'firebase/database';
-import { db } from '../firebaseConfig';
+// --- 1. IMPORT BARU DARI FIRESTORE ---
+import { collection, onSnapshot, doc, setDoc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { firestoreDb } from '../firebaseConfig';
+import toast from 'react-hot-toast';
 
 function KelolaDepo() {
   const [depots, setDepots] = useState([]);
   const [loading, setLoading] = useState(true);
   const [depotId, setDepotId] = useState('');
   const [depotName, setDepotName] = useState('');
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-
-  // --- 1. STATE BARU UNTUK MODAL EDIT ---
+  
+  // State untuk modal Edit
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [editingDepo, setEditingDepo] = useState(null); // Menyimpan data {id, name}
+  const [editingDepo, setEditingDepo] = useState(null);
   const [editedDepoName, setEditedDepoName] = useState('');
 
+  // --- 2. LOGIKA BARU MENGAMBIL DATA DARI FIRESTORE ---
   useEffect(() => {
-    const depotsRef = ref(db, 'depots/');
-    const unsubscribe = onValue(depotsRef, (snapshot) => {
-      const data = snapshot.val();
-      const depotList = data ? Object.keys(data).map(key => ({
-        id: key,
-        ...data[key].info
-      })) : [];
+    const depotsCollectionRef = collection(firestoreDb, 'depots');
+    const unsubscribe = onSnapshot(depotsCollectionRef, (snapshot) => {
+      const depotList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data() // Di Firestore, data info tidak perlu dipisah dalam sub-objek 'info'
+      }));
       setDepots(depotList);
       setLoading(false);
     });
     return () => unsubscribe();
   }, []);
 
+  // --- 3. LOGIKA BARU MENAMBAH DEPO KE FIRESTORE (DENGAN PENYEMPURNAAN) ---
   const handleAddDepo = async (e) => {
     e.preventDefault();
-    setError(''); setSuccess('');
     if (!depotId || !depotName) {
-      setError("ID dan Nama Depo tidak boleh kosong.");
-      return;
+      return toast.error("ID dan Nama Depo tidak boleh kosong.");
     }
-    if (depots.some(depot => depot.id.toUpperCase() === depotId.toUpperCase())) {
-        setError("ID Depo sudah ada. Gunakan ID lain.");
-        return;
+
+    const formattedDepotId = depotId.toUpperCase().replace(/\s+/g, '-'); // Format ID agar konsisten
+    const depotDocRef = doc(firestoreDb, 'depots', formattedDepotId);
+    
+    const docSnap = await getDoc(depotDocRef);
+    if (docSnap.exists()) {
+        return toast.error(`ID Depo "${formattedDepotId}" sudah ada.`);
     }
+
     try {
-      const newDepotRef = ref(db, 'depots/' + depotId.toUpperCase());
-      await set(newDepotRef, {
-        info: { name: depotName, address: '' }
+      await setDoc(depotDocRef, {
+        name: depotName,
+        address: '' // Struktur lebih sederhana
       });
-      setSuccess(`Depo ${depotName} berhasil ditambahkan!`);
+      toast.success(`Depo ${depotName} berhasil ditambahkan!`);
       setDepotId(''); setDepotName('');
     } catch (err) {
-      setError("Gagal menambahkan depo. Coba lagi.");
+      toast.error("Gagal menambahkan depo.");
       console.error(err);
     }
   };
 
-  // --- 2. FUNGSI-FUNGSI BARU UNTUK EDIT DAN HAPUS ---
   const handleOpenEditModal = (depot) => {
     setEditingDepo(depot);
     setEditedDepoName(depot.name);
@@ -63,43 +65,38 @@ function KelolaDepo() {
 
   const handleUpdateDepo = async () => {
     if (!editedDepoName) {
-      alert("Nama depo tidak boleh kosong.");
-      return;
+      return toast.error("Nama depo tidak boleh kosong.");
     }
-    // Update hanya node 'info' di dalam depo, agar tidak mengganggu data 'stock' atau 'transactions'
-    const depoInfoRef = ref(db, `depots/${editingDepo.id}/info`);
+    const depoDocRef = doc(firestoreDb, 'depots', editingDepo.id);
     try {
-      await update(depoInfoRef, { name: editedDepoName });
-      alert("Nama depo berhasil diperbarui.");
+      await updateDoc(depoDocRef, { name: editedDepoName });
+      toast.success("Nama depo berhasil diperbarui.");
       setIsEditModalOpen(false);
     } catch (error) {
-      alert("Gagal memperbarui depo.");
+      toast.error("Gagal memperbarui depo.");
       console.error(error);
     }
   };
 
   const handleDeleteDepo = async (depot) => {
-    if (window.confirm(`PERINGATAN: Anda akan menghapus depo "${depot.name}" beserta SEMUA data stok dan transaksinya. Aksi ini tidak bisa dibatalkan. Lanjutkan?`)) {
+    if (window.confirm(`PERINGATAN: Anda akan menghapus depo "${depot.name}". Aksi ini tidak bisa dibatalkan. Lanjutkan?`)) {
       try {
-        await remove(ref(db, `depots/${depot.id}`));
-        alert("Depo berhasil dihapus.");
+        await deleteDoc(doc(firestoreDb, `depots/${depot.id}`));
+        toast.success("Depo berhasil dihapus.");
       } catch (err) {
-        alert("Gagal menghapus depo.");
+        toast.error("Gagal menghapus depo.");
         console.error(err);
       }
     }
   };
+
   return (
     <>
       <div className="p-8 grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Kolom Kiri: Form Tambah Depo */}
         <div className="md:col-span-1">
           <div className="card bg-white shadow-lg">
             <form className="card-body" onSubmit={handleAddDepo}>
               <h2 className="card-title">Tambah Depo Baru</h2>
-              {error && <div role="alert" className="alert alert-error text-sm"><span>{error}</span></div>}
-              {success && <div role="alert" className="alert alert-success text-sm"><span>{success}</span></div>}
-              
               <div className="form-control">
                 <label className="label"><span className="label-text">ID Depo (Singkat & Unik)</span></label>
                 <input type="text" placeholder="Contoh: DEPO-MKS" className="input input-bordered" value={depotId} onChange={(e) => setDepotId(e.target.value)} />
@@ -115,7 +112,6 @@ function KelolaDepo() {
           </div>
         </div>
 
-        {/* Kolom Kanan: Daftar Depo */}
         <div className="md:col-span-2">
           <div className="overflow-x-auto bg-white rounded-lg shadow-lg">
             <table className="table w-full">
@@ -134,7 +130,6 @@ function KelolaDepo() {
                     <tr key={depot.id}>
                       <td className="font-bold">{depot.id}</td>
                       <td>{depot.name}</td>
-                      {/* --- 3. TOMBOL EDIT & HAPUS YANG SUDAH BERFUNGSI --- */}
                       <td className="flex gap-2">
                         <button onClick={() => handleOpenEditModal(depot)} className="btn btn-xs btn-info">Edit</button>
                         <button onClick={() => handleDeleteDepo(depot)} className="btn btn-xs btn-error">Hapus</button>
@@ -148,7 +143,6 @@ function KelolaDepo() {
         </div>
       </div>
 
-      {/* --- 4. MODAL BARU UNTUK EDIT DEPO --- */}
       {isEditModalOpen && (
         <div className="modal modal-open">
           <div className="modal-box">
