@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ref, onValue, set, push, get, update, remove } from 'firebase/database';
-import { db } from '../firebaseConfig';
+// --- 1. IMPORT BARU DARI FIRESTORE ---
+import { collection, onSnapshot, doc, getDoc, setDoc, addDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import { firestoreDb } from '../firebaseConfig'; // <-- Gunakan firestoreDb
 import Papa from 'papaparse';
 import CameraBarcodeScanner from './CameraBarcodeScanner';
 import toast from 'react-hot-toast';
@@ -31,32 +32,32 @@ function KelolaMasterBarang() {
   const [editingItem, setEditingItem] = useState(null);
   const [editedItemData, setEditedItemData] = useState({});
   
-  // State untuk notifikasi dan scanner
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [showScanner, setShowScanner] = useState(false);
   const [scanningFor, setScanningFor] = useState(null);
   const fileInputRef = useRef(null);
 
+  // --- 2. LOGIKA BARU MENGAMBIL DATA DARI FIRESTORE ---
   useEffect(() => {
-    const masterItemsRef = ref(db, 'master_items/');
-    onValue(masterItemsRef, (snapshot) => {
-      const data = snapshot.val() || {};
-      const itemList = data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : [];
+    setLoading(true);
+    const unsubMaster = onSnapshot(collection(firestoreDb, 'master_items'), (snapshot) => {
+      const itemList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setMasterItems(itemList);
+      if(loading) setLoading(false);
     });
-    const suppliersRef = ref(db, 'suppliers/');
-    onValue(suppliersRef, (snapshot) => {
-      const data = snapshot.val() || {};
-      setSuppliers(data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : []);
+    const unsubSuppliers = onSnapshot(collection(firestoreDb, 'suppliers'), (snapshot) => {
+      const supplierList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setSuppliers(supplierList);
     });
-    const categoriesRef = ref(db, 'categories/');
-    onValue(categoriesRef, (snapshot) => {
-      const data = snapshot.val() || {};
-      const loadedCategories = data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : [];
-      setCategories(loadedCategories);
-      setLoading(false);
+    const unsubCategories = onSnapshot(collection(firestoreDb, 'categories'), (snapshot) => {
+      const categoryList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setCategories(categoryList);
     });
+
+    return () => {
+      unsubMaster();
+      unsubSuppliers();
+      unsubCategories();
+    };
   }, []);
 
   useEffect(() => {
@@ -87,43 +88,45 @@ function KelolaMasterBarang() {
     setPcsPerPack(''); setPackPerDos(''); 
   };
 
+  // --- 3. LOGIKA BARU MENYIMPAN DATA KE FIRESTORE ---
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError(''); setSuccess('');
     if (!name || !kodeInternal || !category || !selectedSupplierId) {
-      setError("Nama Barang, Kode Internal, Kategori, dan Supplier wajib diisi!");
-      return;
-    }
-    const itemId = barcodePcs || kodeInternal.toUpperCase();
-    const itemRef = ref(db, `master_items/${itemId}`);
-    
-    const snapshot = await get(itemRef);
-    if (snapshot.exists()) {
-        setError("Barcode PCS atau Kode Internal ini sudah terdaftar.");
-        return;
+      return toast.error("Nama, Kode Internal, Kategori, dan Supplier wajib diisi!");
     }
 
+    // Di Firestore, kita biarkan ID dibuat otomatis oleh sistem untuk menghindari duplikasi
     const selectedSupplier = suppliers.find(s => s.id === selectedSupplierId);
     const pcsPerPackNum = Number(pcsPerPack) || 1;
     const packPerDosNum = Number(packPerDos) || 1;
 
     try {
-      await set(itemRef, {
-        name, kodeInternal: kodeInternal.toUpperCase(), category,
-        supplierId: selectedSupplier.id, supplierName: selectedSupplier.name,
+      await addDoc(collection(firestoreDb, 'master_items'), {
+        name, 
+        kodeInternal: kodeInternal.toUpperCase(), 
+        category,
+        supplierId: selectedSupplier.id, 
+        supplierName: selectedSupplier.name,
         subSupplierName: selectedSubSupplierName || null,
-        barcodePcs: barcodePcs || null, barcodeDos: barcodeDos || null,
+        barcodePcs: barcodePcs || null, 
+        barcodeDos: barcodeDos || null,
         baseUnit: 'Pcs',
-        conversions: { Pack: { inPcs: pcsPerPackNum }, Dos: { inPcs: pcsPerPackNum * packPerDosNum } }
+        conversions: { 
+          Pack: { inPcs: pcsPerPackNum }, 
+          Dos: { inPcs: pcsPerPackNum * packPerDosNum } 
+        }
       });
-      setSuccess(`Barang "${name}" berhasil ditambahkan.`);
+      toast.success(`Barang "${name}" berhasil ditambahkan.`);
       resetForm();
-    } catch(err) { setError("Gagal menambahkan barang."); }
+    } catch(err) { 
+      toast.error("Gagal menambahkan barang."); 
+      console.error(err);
+    }
   };
-  
+
   const handleDownloadTemplate = () => {
     const csvHeader = "kodeInternal,barcodePcs,barcodeDos,namaBarang,kategori,idSupplier,namaSubSupplier,pcsPerPack,packPerDos\n";
-    const exampleRow = "M411158,899123,1899123,Indomie Goreng,Makanan,SUP-INDFOOD,,40,1\n";
+    const exampleRow = "M411158,899123,1899123,Indomie Goreng,Makanan,ID_SUPPLIER_DARI_FIRESTORE,,40,1\n";
     const csvContent = csvHeader + exampleRow;
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
@@ -140,14 +143,9 @@ function KelolaMasterBarang() {
         return toast.error("Tidak ada data master barang untuk diekspor.");
     }
     const dataToExport = masterItems.map(item => ({
-        kodeInternal: item.kodeInternal || '',
-        barcodePcs: item.barcodePcs || '',
-        barcodeDos: item.barcodeDos || '',
-        namaBarang: item.name || '',
-        kategori: item.category || '',
-        idSupplier: item.supplierId || '',
-        namaSubSupplier: item.subSupplierName || '',
-        pcsPerPack: item.conversions?.Pack?.inPcs || '',
+        kodeInternal: item.kodeInternal || '', barcodePcs: item.barcodePcs || '', barcodeDos: item.barcodeDos || '',
+        namaBarang: item.name || '', kategori: item.category || '', idSupplier: item.supplierId || '',
+        namaSubSupplier: item.subSupplierName || '', pcsPerPack: item.conversions?.Pack?.inPcs || '',
         packPerDos: item.conversions?.Dos?.inPcs ? (item.conversions.Dos.inPcs / (item.conversions.Pack?.inPcs || 1)) : '',
     }));
     const csv = Papa.unparse(dataToExport);
@@ -161,29 +159,25 @@ function KelolaMasterBarang() {
     toast.success("Master Barang berhasil diekspor!");
   };
   
+  // --- 4. LOGIKA BARU IMPOR CSV KE FIRESTORE ---
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
     if (!file) return;
+
     Papa.parse(file, {
       header: true, skipEmptyLines: true,
       complete: async (results) => {
         const itemsToImport = results.data;
+        if (itemsToImport.length === 0) return toast.error("File CSV kosong atau format salah.");
+
+        const batch = writeBatch(firestoreDb);
         let successCount = 0; let errorCount = 0; let errorMessages = [];
-        let lastSupplierId = ''; let lastCategory = '';
-
+        
         for (const item of itemsToImport) {
-          if (item.idSupplier) lastSupplierId = item.idSupplier;
-          else item.idSupplier = lastSupplierId;
-
-          if (item.kategori) lastCategory = item.kategori;
-          else item.kategori = lastCategory;
-          
-          const itemId = item.barcodePcs || item.kodeInternal?.toUpperCase();
           if (!item.namaBarang || !item.kategori || !item.idSupplier || !item.kodeInternal) {
-            errorCount++; errorMessages.push(`Data tidak lengkap: ${item.namaBarang || item.kodeInternal || 'Tanpa Nama'}`);
+            errorCount++; errorMessages.push(`Data tidak lengkap: ${item.namaBarang || item.kodeInternal}`);
             continue;
           }
-          const itemRef = ref(db, `master_items/${itemId}`);
           const supplierData = suppliers.find(s => s.id === item.idSupplier);
           if (!supplierData) {
             errorCount++; errorMessages.push(`Supplier ID tidak valid: ${item.idSupplier} untuk ${item.namaBarang}`);
@@ -198,14 +192,22 @@ function KelolaMasterBarang() {
               barcodePcs: item.barcodePcs || null, barcodeDos: item.barcodeDos || null, baseUnit: 'Pcs',
               conversions: { Pack: { inPcs: pcsPerPackNum }, Dos: { inPcs: pcsPerPackNum * packPerDosNum } }
           };
-          try {
-            await set(itemRef, dataToSave);
-            successCount++;
-          } catch (err) {
-            errorCount++; errorMessages.push(`Gagal menyimpan: ${item.namaBarang}`);
-          }
+          
+          const newDocRef = doc(collection(firestoreDb, "master_items"));
+          batch.set(newDocRef, dataToSave);
+          successCount++;
         }
-        alert(`Impor selesai.\nBerhasil Ditambah/Diperbarui: ${successCount}\nGagal: ${errorCount}\n\nDetail Kegagalan:\n${errorMessages.slice(0,10).join('\n')}`);
+
+        try {
+            await batch.commit();
+            toast.success(`${successCount} barang berhasil diimpor.`);
+            if (errorCount > 0) {
+                toast.error(`${errorCount} barang gagal diimpor. Lihat console untuk detail.`);
+                console.error("Detail Kegagalan Impor:", errorMessages);
+            }
+        } catch(err) {
+            toast.error("Gagal melakukan impor massal.");
+        }
       }
     });
     event.target.value = null;
@@ -222,25 +224,37 @@ function KelolaMasterBarang() {
     setIsEditModalOpen(true);
   };
 
+  // --- 5. LOGIKA BARU UPDATE DATA KE FIRESTORE ---
   const handleUpdateItem = async () => {
     if (!editedItemData.name) {
-      alert("Nama barang tidak boleh kosong."); return;
+      return toast.error("Nama barang tidak boleh kosong.");
     }
-    const itemRef = ref(db, `master_items/${editingItem.id}`);
+    const itemDocRef = doc(firestoreDb, "master_items", editingItem.id);
     const pcsPerPackNum = Number(editedItemData.pcsPerPack) || 1;
     const packPerDosNum = Number(editedItemData.packPerDos) || 1;
     const selectedSupplier = suppliers.find(s => s.id === editedItemData.supplierId);
+    
     const updatedData = {
-      name: editedItemData.name, category: editedItemData.category,
-      supplierId: editedItemData.supplierId, supplierName: selectedSupplier.name,
-      barcodePcs: editedItemData.barcodePcs || null, barcodeDos: editedItemData.barcodeDos || null,
-      conversions: { Pack: { inPcs: pcsPerPackNum }, Dos: { inPcs: pcsPerPackNum * packPerDosNum } }
+      name: editedItemData.name,
+      category: editedItemData.category,
+      supplierId: editedItemData.supplierId,
+      supplierName: selectedSupplier.name,
+      barcodePcs: editedItemData.barcodePcs || null,
+      barcodeDos: editedItemData.barcodeDos || null,
+      conversions: { 
+        Pack: { inPcs: pcsPerPackNum }, 
+        Dos: { inPcs: pcsPerPackNum * packPerDosNum } 
+      }
     };
+
     try {
-      await update(itemRef, updatedData);
+      await updateDoc(itemDocRef, updatedData);
       toast.success(`Barang "${editedItemData.name}" berhasil diperbarui.`);
       setIsEditModalOpen(false);
-    } catch (err) { alert("Gagal memperbarui barang."); }
+    } catch (err) { 
+      toast.error("Gagal memperbarui barang."); 
+      console.error(err);
+    }
   };
 
   const handleEditFormChange = (e) => {
@@ -250,7 +264,7 @@ function KelolaMasterBarang() {
 
   const subSuppliers = suppliers.find(s => s.id === selectedSupplierId)?.subSuppliers || {};
   const ScanIcon = () => ( <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" /></svg> );
-
+  
   return (
     <>
       {showScanner && ( <CameraBarcodeScanner onScan={handleScanResult} onClose={() => setShowScanner(false)} /> )}
@@ -258,8 +272,6 @@ function KelolaMasterBarang() {
         <div className="lg:col-span-1">
           <form onSubmit={handleSubmit} className="card bg-white shadow-lg p-6 space-y-2">
              <h2 className="card-title">Tambah Master Barang</h2>
-            {success && <div role="alert" className="alert alert-success text-sm p-2"><span>{success}</span></div>}
-            {error && <div role="alert" className="alert alert-error text-sm p-2"><span>{error}</span></div>}
             <div className="form-control"><label className="label"><span className="label-text font-bold">Nama Barang</span></label><input type="text" placeholder="Nama produk" value={name} onChange={e => setName(e.target.value)} className="input input-bordered" /></div>
             <div className="form-control"><label className="label"><span className="label-text font-bold">Kode Internal (ND6)</span></label><input type="text" placeholder="Kode produk dari ND6" value={kodeInternal} onChange={e => setKodeInternal(e.target.value)} className="input input-bordered" /></div>
             <div className="form-control"><label className="label"><span className="label-text font-bold">Kategori</span></label><select className="select select-bordered" value={category} onChange={e => setCategory(e.target.value)}><option value="">Pilih Kategori</option>{categories.map(cat => <option key={cat.id} value={cat.name}>{cat.name}</option>)}</select></div>
@@ -296,7 +308,8 @@ function KelolaMasterBarang() {
                 <tr><th>Nama Barang</th><th>Kode Internal</th><th>Kategori</th><th>Supplier</th><th>Aksi</th></tr>
               </thead>
               <tbody>
-                {loading ? (<tr><td colSpan="5" className="text-center"><span className="loading loading-dots"></span></td></tr>) 
+                {loading ?
+                (<tr><td colSpan="5" className="text-center"><span className="loading loading-dots"></span></td></tr>) 
                 : (filteredItems.map(item => (
                     <tr key={item.id}>
                       <td>{item.name}</td>
@@ -341,4 +354,5 @@ function KelolaMasterBarang() {
     </>
   );
 }
+
 export default KelolaMasterBarang;
