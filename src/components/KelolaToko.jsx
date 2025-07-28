@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ref, onValue, set, get, update, remove } from 'firebase/database';
-import { db } from '../firebaseConfig';
+import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { firestoreDb } from '../firebaseConfig';
 import toast from 'react-hot-toast';
 import Papa from 'papaparse';
 
@@ -13,7 +13,6 @@ function KelolaToko() {
   const fileInputRef = useRef(null);
 
   // State untuk form tambah
-  const [idToko, setIdToko] = useState('');
   const [namaToko, setNamaToko] = useState('');
   const [alamat, setAlamat] = useState('');
   const [telepon, setTelepon] = useState('');
@@ -27,22 +26,22 @@ function KelolaToko() {
   const [editedData, setEditedData] = useState({});
 
   useEffect(() => {
-    const tokoRef = ref(db, 'master_toko');
-    const suppliersRef = ref(db, 'suppliers');
-
-    onValue(tokoRef, (snapshot) => {
-      const data = snapshot.val() || {};
-      const loadedToko = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+    setLoading(true);
+    const unsubToko = onSnapshot(collection(firestoreDb, 'master_toko'), (snapshot) => {
+      const loadedToko = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setTokoList(loadedToko);
+      if(loading) setLoading(false);
     });
 
-    onValue(suppliersRef, (snapshot) => {
-      const data = snapshot.val() || {};
-      const loadedSuppliers = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+    const unsubSuppliers = onSnapshot(collection(firestoreDb, 'suppliers'), (snapshot) => {
+      const loadedSuppliers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setSuppliers(loadedSuppliers);
     });
 
-    setLoading(false);
+    return () => {
+        unsubToko();
+        unsubSuppliers();
+    }
   }, []);
 
   useEffect(() => {
@@ -50,31 +49,25 @@ function KelolaToko() {
     if (searchTerm) {
       filtered = filtered.filter(toko =>
         toko.namaToko.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        toko.id.toLowerCase().includes(searchTerm.toLowerCase())
+        (toko.id && toko.id.toLowerCase().includes(searchTerm.toLowerCase()))
       );
     }
     setFilteredToko(filtered.sort((a, b) => a.namaToko.localeCompare(b.namaToko)));
   }, [searchTerm, tokoList]);
 
   const resetForm = () => {
-    setIdToko(''); setNamaToko(''); setAlamat('');
-    setTelepon(''); setPemilik(''); setSelectedDivisi('');
-    setSelectedProductGroup('');
+    setNamaToko(''); setAlamat(''); setTelepon(''); setPemilik(''); 
+    setSelectedDivisi(''); setSelectedProductGroup('');
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!idToko || !namaToko || !alamat || !selectedDivisi) {
-      return toast.error("ID Toko, Nama Toko, Alamat, dan Divisi wajib diisi.");
-    }
-    const newTokoRef = ref(db, `master_toko/${idToko.toUpperCase()}`);
-    const snapshot = await get(newTokoRef);
-    if (snapshot.exists()) {
-      return toast.error(`ID Toko "${idToko.toUpperCase()}" sudah terdaftar.`);
+    if (!namaToko || !alamat || !selectedDivisi) {
+      return toast.error("Nama Toko, Alamat, dan Divisi wajib diisi.");
     }
     try {
       const divisiData = suppliers.find(s => s.id === selectedDivisi);
-      await set(newTokoRef, { 
+      await addDoc(collection(firestoreDb, 'master_toko'), { 
         namaToko, alamat, telepon, pemilik, 
         divisiId: selectedDivisi,
         divisiName: divisiData.name,
@@ -82,13 +75,15 @@ function KelolaToko() {
       });
       toast.success("Toko baru berhasil ditambahkan.");
       resetForm();
-    } catch (error) { toast.error("Gagal menambahkan toko."); }
+    } catch (error) { 
+        toast.error("Gagal menambahkan toko.");
+        console.error(error);
+    }
   };
-  
+
   const handleDelete = (toko) => {
     if (window.confirm(`Apakah Anda yakin ingin menghapus "${toko.namaToko}"?`)) {
-        const tokoRef = ref(db, `master_toko/${toko.id}`);
-        remove(tokoRef)
+        deleteDoc(doc(firestoreDb, 'master_toko', toko.id))
             .then(() => toast.success("Toko berhasil dihapus."))
             .catch(() => toast.error("Gagal menghapus toko."));
     }
@@ -108,19 +103,22 @@ function KelolaToko() {
     if (!editedData.namaToko || !editedData.alamat || !editedData.divisiId) {
         return toast.error("Nama Toko, Alamat, dan Divisi wajib diisi.");
     }
-    const tokoRef = ref(db, `master_toko/${editingToko.id}`);
+    const tokoDocRef = doc(firestoreDb, 'master_toko', editingToko.id);
     try {
         const divisiData = suppliers.find(s => s.id === editedData.divisiId);
-        await update(tokoRef, { ...editedData, divisiName: divisiData.name });
+        await updateDoc(tokoDocRef, { ...editedData, divisiName: divisiData.name });
         toast.success("Data toko berhasil diperbarui.");
         setIsEditModalOpen(false);
         setEditingToko(null);
-    } catch (error) { toast.error("Gagal memperbarui data toko."); }
+    } catch (error) { 
+        toast.error("Gagal memperbarui data toko.");
+        console.error(error);
+    }
   };
 
   const handleDownloadTemplate = () => {
-    const csvHeader = "idToko,namaToko,alamat,telepon,pemilik,divisiId,productGroup\n";
-    const exampleRow = "T-SLY-001,TOKO MAJU JAYA,JLN. KEMERDEKAAN NO. 10 SELAYAR,08123456789,Bapak Jaya,DIV001,GROUP1\n";
+    const csvHeader = "namaToko,alamat,telepon,pemilik,divisiId,productGroup\n";
+    const exampleRow = "TOKO MAJU JAYA,JLN. KEMERDEKAAN NO. 10,08123456789,Bapak Jaya,ID_DIVISI_DARI_FIRESTORE,GROUP1\n";
     const blob = new Blob([csvHeader + exampleRow], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
     link.setAttribute("href", URL.createObjectURL(blob));
@@ -133,16 +131,17 @@ function KelolaToko() {
   const handleFileUpload = (event) => {
     const file = event.target.files[0];
     if (!file) return;
+
     Papa.parse(file, {
       header: true, skipEmptyLines: true,
       complete: async (results) => {
         const itemsToImport = results.data;
+        const batch = writeBatch(firestoreDb);
         let successCount = 0; let errorCount = 0; let errorMessages = [];
         
         for (const item of itemsToImport) {
-          const tokoId = item.idToko?.toUpperCase();
-          if (!tokoId || !item.namaToko || !item.alamat) {
-            errorCount++; errorMessages.push(`Data tidak lengkap untuk ID: ${tokoId || 'Kosong'}`);
+          if (!item.namaToko || !item.alamat || !item.divisiId) {
+            errorCount++; errorMessages.push(`Data tidak lengkap untuk: ${item.namaToko || 'Tanpa Nama'}`);
             continue;
           }
           
@@ -152,27 +151,31 @@ function KelolaToko() {
             continue;
           }
 
-          const tokoRef = ref(db, `master_toko/${tokoId}`);
+          const newTokoRef = doc(collection(firestoreDb, "master_toko"));
           const dataToSave = {
             namaToko: item.namaToko, alamat: item.alamat,
             telepon: item.telepon || '', pemilik: item.pemilik || '',
             divisiId: item.divisiId, divisiName: divisiData.name,
             productGroup: item.productGroup || ''
           };
-
-          try {
-            await set(tokoRef, dataToSave); // set akan membuat baru atau menimpa (update)
-            successCount++;
-          } catch (err) {
-            errorCount++; errorMessages.push(`Gagal menyimpan ke DB: ${tokoId}`);
-          }
+          batch.set(newTokoRef, dataToSave);
+          successCount++;
         }
-        alert(`Proses impor selesai.\nBerhasil Ditambah/Diperbarui: ${successCount}\nGagal: ${errorCount}\n\nDetail Kegagalan:\n${errorMessages.join('\n')}`);
+
+        try {
+            await batch.commit();
+            toast.success(`${successCount} toko berhasil diimpor.`);
+            if (errorCount > 0) {
+                toast.error(`${errorCount} toko gagal diimpor. Lihat console.`);
+                console.error("Detail Kegagalan Impor Toko:", errorMessages);
+            }
+        } catch(err) {
+            toast.error("Gagal melakukan impor massal.");
+        }
       }
     });
     event.target.value = null;
   };
-
 
   const selectedSupplierForForm = suppliers.find(s => s.id === selectedDivisi);
   const subSuppliersForForm = selectedSupplierForForm?.subSuppliers || {};
@@ -185,7 +188,6 @@ function KelolaToko() {
         <div className="lg:col-span-1">
           <form onSubmit={handleSubmit} className="card bg-white shadow-lg p-6 space-y-2">
             <h2 className="card-title">Tambah Toko Baru</h2>
-            <div className="form-control"><label className="label"><span className="label-text font-bold">ID Toko</span></label><input type="text" value={idToko} onChange={e => setIdToko(e.target.value)} placeholder="Contoh: T-BKM-001" className="input input-bordered" /></div>
             <div className="form-control"><label className="label"><span className="label-text font-bold">Nama Toko</span></label><input type="text" value={namaToko} onChange={e => setNamaToko(e.target.value)} placeholder="Nama lengkap toko" className="input input-bordered" /></div>
             <div className="form-control"><label className="label"><span className="label-text font-bold">Alamat</span></label><textarea value={alamat} onChange={e => setAlamat(e.target.value)} className="textarea textarea-bordered" placeholder="Alamat lengkap"></textarea></div>
             <div className="form-control"><label className="label"><span className="label-text font-bold">Divisi (Supplier)</span></label><select className="select select-bordered" value={selectedDivisi} onChange={e => {setSelectedDivisi(e.target.value); setSelectedProductGroup('');}}><option value="">Pilih Divisi</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
@@ -198,35 +200,24 @@ function KelolaToko() {
         </div>
 
         <div className="lg:col-span-2">
-          <div className="card bg-white shadow-lg p-4 mb-6"><div className="form-control"><label className="label-text">Cari Toko (Nama atau ID)</label><input type="text" placeholder="Ketik untuk mencari..." className="input input-bordered w-full" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div></div>
-          
+          <div className="card bg-white shadow-lg p-4 mb-6"><div className="form-control"><label className="label-text">Cari Toko (Nama)</label><input type="text" placeholder="Ketik untuk mencari..." className="input input-bordered w-full" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div></div>
           <div className="flex flex-wrap gap-2 mb-4">
-              <button onClick={handleDownloadTemplate} className="btn btn-sm btn-outline btn-info">
-                Unduh Template CSV
-              </button>
-              <button onClick={() => fileInputRef.current.click()} className="btn btn-sm btn-outline btn-success">
-                Impor dari CSV
-              </button>
-              <input 
-                type="file" 
-                ref={fileInputRef}
-                className="hidden"
-                onChange={handleFileUpload}
-                accept=".csv"
-              />
+              <button onClick={handleDownloadTemplate} className="btn btn-sm btn-outline btn-info">Unduh Template CSV</button>
+              <button onClick={() => fileInputRef.current.click()} className="btn btn-sm btn-outline btn-success">Impor dari CSV</button>
+              <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} accept=".csv"/>
           </div>
 
           <div className="overflow-x-auto bg-white rounded-lg shadow-lg">
             <table className="table w-full">
-              <thead className="bg-gray-200"><tr><th>ID Toko</th><th>Nama Toko</th><th>Divisi</th><th>Product Group</th><th>Aksi</th></tr></thead>
+              <thead className="bg-gray-200"><tr><th>Nama Toko</th><th>Alamat</th><th>Divisi</th><th>Aksi</th></tr></thead>
               <tbody>
-                {loading ? (<tr><td colSpan="5" className="text-center"><span className="loading loading-dots"></span></td></tr>) 
+                {loading ?
+                (<tr><td colSpan="4" className="text-center"><span className="loading loading-dots"></span></td></tr>) 
                 : (filteredToko.map(toko => (
                     <tr key={toko.id} className="hover">
-                      <td className="font-bold">{toko.id}</td>
-                      <td>{toko.namaToko}</td>
+                      <td className="font-bold">{toko.namaToko}</td>
+                      <td>{toko.alamat}</td>
                       <td>{toko.divisiName}</td>
-                      <td>{toko.productGroup}</td>
                       <td className="flex gap-2"><button onClick={() => openEditModal(toko)} className="btn btn-xs btn-info">Edit</button><button onClick={() => handleDelete(toko)} className="btn btn-xs btn-error">Hapus</button></td>
                     </tr>
                   )))}
