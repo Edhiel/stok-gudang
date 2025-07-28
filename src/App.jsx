@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc } from 'firebase/firestore';
 import { auth, firestoreDb } from './firebaseConfig';
-import { Toaster } from 'react-hot-toast';
-// ... (semua import komponen lainnya tetap sama)
+import { Toaster, toast } from 'react-hot-toast';
 import Login from './components/Login';
 import Register from './components/Register';
 import Navbar from './components/Navbar';
@@ -32,7 +31,6 @@ import TransferStok from './components/TransferStok';
 import KelolaToko from './components/KelolaToko';
 import KelolaLokasi from './components/KelolaLokasi';
 
-
 function App() {
   const [userProfile, setUserProfile] = useState(null);
   const [authPage, setAuthPage] = useState('login');
@@ -42,20 +40,25 @@ function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
-        const userDocRef = doc(firestoreDb, "users", user.uid);
-        getDoc(userDocRef).then((docSnap) => {
-          if (docSnap.exists()) {
-            setUserProfile({ uid: user.uid, ...docSnap.data() });
-          } else {
-            console.error("No such user document in Firestore!");
+        const userDocRef = doc(firestoreDb, 'users', user.uid);
+        getDoc(userDocRef)
+          .then((docSnap) => {
+            if (docSnap.exists()) {
+              setUserProfile({ uid: user.uid, ...docSnap.data() });
+            } else {
+              console.error('No such user document in Firestore!');
+              toast.error('Data pengguna tidak ditemukan!');
+              signOut(auth);
+            }
+          })
+          .catch((error) => {
+            console.error('Gagal mengambil data user dari Firestore:', error);
+            toast.error('Gagal memuat data pengguna! Silakan coba lagi.');
             signOut(auth);
-          }
-        }).catch((error) => {
-          console.error("Gagal mengambil data user dari Firestore:", error);
-          signOut(auth);
-        }).finally(() => {
-          setLoading(false);
-        });
+          })
+          .finally(() => {
+            setLoading(false);
+          });
       } else {
         setUserProfile(null);
         setAuthPage('login');
@@ -69,8 +72,10 @@ function App() {
     try {
       await signOut(auth);
       setMainPage('dashboard');
+      toast.success('Berhasil logout!');
     } catch (error) {
-      console.error("Gagal logout:", error);
+      console.error('Gagal logout:', error);
+      toast.error('Gagal logout! Silakan coba lagi.');
     }
   };
 
@@ -89,13 +94,16 @@ function App() {
     const isSuperAdmin = userProfile.role === 'Super Admin';
     const isAdminPusat = userProfile.role === 'Admin Pusat';
     const isSales = userProfile.role === 'Sales Depo';
-    const canDoGudangTransaction = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang', 'Staf Gudang'].includes(userProfile.role);
+    const canDoGudangTransaction = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang', 'Staf Gudang'].includes(
+      userProfile.role
+    );
     const canAccessMasterData = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(userProfile.role);
-    const canViewLaporan = ['Super Admin', 'Admin Pusat', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(userProfile.role);
+    const canViewLaporan = ['Super Admin', 'Admin Pusat', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(
+      userProfile.role
+    );
     const canProcessOrder = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(userProfile.role);
     const isDriverOrHelper = ['Sopir', 'Helper Depo'].includes(userProfile.role);
 
-    // Dengan menambahkan || isSuperAdmin, Super Admin bisa akses semua menu
     switch (mainPage) {
       case 'buat-order':
         if (isSales || isSuperAdmin) return <BuatOrder userProfile={userProfile} />;
@@ -167,17 +175,24 @@ function App() {
       default:
         return <Dashboard user={userProfile} setPage={setMainPage} />;
     }
-    
+
     return <Dashboard user={userProfile} setPage={setMainPage} />;
   };
 
   if (loading) {
-    return ( <div className="min-h-screen flex items-center justify-center"><span className="loading loading-spinner loading-lg"></span></div> );
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <span className="loading loading-spinner loading-lg"></span>
+          <p className="mt-2">Memuat data pengguna...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="min-h-screen bg-base-200">
-      <Toaster />
+      <Toaster position="top-right" reverseOrder={false} />
       {userProfile ? (
         <>
           <Navbar user={userProfile} setPage={setMainPage} handleLogout={handleLogout} />
