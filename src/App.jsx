@@ -3,7 +3,6 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { ref, get } from 'firebase/database';
 import { auth, db } from './firebaseConfig';
 import { Toaster } from 'react-hot-toast';
-
 import Login from './components/Login';
 import Register from './components/Register';
 import Navbar from './components/Navbar';
@@ -20,6 +19,7 @@ import FakturTertunda from './components/FakturTertunda';
 import KelolaFakturTertunda from './components/KelolaFakturTertunda';
 import ManajemenRetur from './components/ManajemenRetur';
 import Laporan from './components/Laporan';
+import LaporanKedaluwarsa from './components/LaporanKedaluwarsa'; // <-- 1. IMPORT BARU
 import BackupRestore from './components/BackupRestore';
 import BuatOrder from './components/BuatOrder';
 import ProsesOrder from './components/ProsesOrder';
@@ -29,7 +29,7 @@ import UserProfile from './components/UserProfile';
 import KantorPusat from './components/KantorPusat';
 import TransferStok from './components/TransferStok';
 import KelolaToko from './components/KelolaToko';
-import KelolaLokasi from './components/KelolaLokasi'; // <-- Impor baru
+import KelolaLokasi from './components/KelolaLokasi';
 
 function App() {
   const [userProfile, setUserProfile] = useState(null);
@@ -61,7 +61,7 @@ function App() {
     });
     return () => unsubscribe();
   }, []);
-  
+
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -98,7 +98,6 @@ function App() {
       case 'proses-order':
         if (canProcessOrder) return <ProsesOrder userProfile={userProfile} />;
         break;
-      
       case 'stok-masuk':
         if (canDoGudangTransaction) return <StokMasuk userProfile={userProfile} />;
         break;
@@ -117,13 +116,11 @@ function App() {
       case 'transfer-stok':
         if (canAccessMasterData || isSuperAdmin) return <TransferStok userProfile={userProfile} />;
         break;
-
       case 'faktur-tertunda':
         return <FakturTertunda userProfile={userProfile} />;
       case 'proses-faktur-tertunda':
         if (canProcessOrder) return <KelolaFakturTertunda userProfile={userProfile} />;
         break;
-
       case 'kelola-master-barang':
         if (canAccessMasterData) return <KelolaMasterBarang userProfile={userProfile} />;
         break;
@@ -136,22 +133,25 @@ function App() {
       case 'kelola-kategori':
         if (canAccessMasterData) return <KelolaKategori userProfile={userProfile} />;
         break;
-
       case 'laporan':
         if (canViewLaporan) return <Laporan userProfile={userProfile} />;
+        break;
+      
+      // --- 2. CASE BARU UNTUK MENAMPILKAN LAPORAN ED ---
+      case 'laporan-kedaluwarsa':
+        if (canViewLaporan) return <LaporanKedaluwarsa userProfile={userProfile} />;
         break;
 
       case 'kantor-pusat':
         if (isSuperAdmin || isAdminPusat) return <KantorPusat userProfile={userProfile} />;
         break;
-
       case 'kelola-pengguna':
         if (isSuperAdmin) return <KelolaPengguna userProfile={userProfile} />;
         break;
       case 'kelola-depo':
         if (isSuperAdmin) return <KelolaDepo userProfile={userProfile} />;
         break;
-      case 'kelola-lokasi': // <-- Case baru
+      case 'kelola-lokasi':
         if (canAccessMasterData) return <KelolaLokasi userProfile={userProfile} />;
         break;
       case 'alokasi-supplier':
@@ -160,10 +160,8 @@ function App() {
       case 'backup-restore':
         if (isSuperAdmin) return <BackupRestore userProfile={userProfile} />;
         break;
-        
       case 'user-profile':
         return <UserProfile userProfile={userProfile} />;
-
       default:
         return <Dashboard user={userProfile} setPage={setMainPage} />;
     }
@@ -192,4 +190,5 @@ function App() {
     </div>
   );
 }
+
 export default App;
