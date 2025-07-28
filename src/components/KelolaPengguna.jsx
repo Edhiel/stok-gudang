@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { ref, onValue, update, remove } from 'firebase/database';
+// --- 1. IMPORT BARU DARI FIRESTORE ---
+import { collection, onSnapshot, doc, updateDoc, deleteDoc, getDocs } from 'firebase/firestore';
 import { getAuth, sendPasswordResetEmail } from 'firebase/auth';
-import { db } from '../firebaseConfig';
+// --- 2. UBAH IMPORT DARI FIREBASECONFIG ---
+import { firestoreDb, db as rtdb } from '../firebaseConfig'; // ganti nama db lama menjadi rtdb
 import toast from 'react-hot-toast';
 
 function KelolaPengguna() {
@@ -11,21 +13,19 @@ function KelolaPengguna() {
   const [editingUser, setEditingUser] = useState(null);
   const [selectedRole, setSelectedRole] = useState('');
   const [selectedDepot, setSelectedDepot] = useState('');
-
-  // --- PERUBAHAN DI SINI: Tambahkan "Admin Pusat" ---
   const roles = ['Super Admin', 'Admin Pusat', 'Kepala Depo', 'Kepala Gudang', 'Admin Depo', 'Staf Gudang', 'Sales Depo', 'Sopir', 'Helper', 'Menunggu Persetujuan'];
 
   useEffect(() => {
-    const usersRef = ref(db, 'users/');
-    const depotsRef = ref(db, 'depots/');
-
-    const unsubscribeUsers = onValue(usersRef, (snapshot) => {
-      const data = snapshot.val();
-      const userList = data ? Object.keys(data).map(key => ({ uid: key, ...data[key] })) : [];
+    // --- 3. LOGIKA BARU MENGAMBIL DATA USERS DARI FIRESTORE ---
+    const usersCollectionRef = collection(firestoreDb, 'users');
+    const unsubscribeUsers = onSnapshot(usersCollectionRef, (querySnapshot) => {
+      const userList = querySnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
       setUsers(userList);
       setLoading(false);
     });
 
+    // Ambil data depo tetap dari Realtime DB untuk saat ini
+    const depotsRef = ref(rtdb, 'depots/');
     const unsubscribeDepots = onValue(depotsRef, (snapshot) => {
       const data = snapshot.val();
       const depotList = data ? Object.keys(data).map(key => ({ id: key, ...data[key].info })) : [];
@@ -45,13 +45,14 @@ function KelolaPengguna() {
     document.getElementById('edit_modal').showModal();
   };
 
+  // --- 4. LOGIKA BARU UPDATE PENGGUNA KE FIRESTORE ---
   const handleUpdateUser = async () => {
     if (!editingUser) return;
-    const userRef = ref(db, 'users/' + editingUser.uid);
+    const userDocRef = doc(firestoreDb, 'users', editingUser.uid);
     try {
-      await update(userRef, {
+      await updateDoc(userDocRef, {
         role: selectedRole,
-        depotId: selectedRole === 'Admin Pusat' ? '' : selectedDepot, // Admin Pusat tidak terikat depo
+        depotId: selectedRole === 'Admin Pusat' || selectedRole === 'Super Admin' ? null : selectedDepot,
       });
       toast.success('Data pengguna berhasil diperbarui.');
       document.getElementById('edit_modal').close();
@@ -76,13 +77,17 @@ function KelolaPengguna() {
     }
   };
   
+  // --- 5. LOGIKA BARU HAPUS PENGGUNA DARI FIRESTORE ---
   const handleDeleteUser = async (user) => {
     if (!window.confirm(`PERINGATAN: Anda akan menghapus data pengguna "${user.fullName}". Aksi ini tidak bisa dibatalkan. Lanjutkan?`)) {
         return;
     }
+    // PENTING: Menghapus data di Firestore tidak menghapus akun autentikasi.
+    // Fitur hapus akun autentikasi memerlukan Firebase Admin SDK di backend.
     try {
-        await remove(ref(db, 'users/' + user.uid));
+        await deleteDoc(doc(firestoreDb, 'users', user.uid));
         toast.success('Data pengguna berhasil dihapus dari database.');
+        toast('Perhatian: Akun login pengguna ini tidak terhapus. Harap nonaktifkan manual dari Firebase Authentication Console.', { icon: 'ℹ️' });
     } catch (error) {
         toast.error('Gagal menghapus data pengguna.');
         console.error("Gagal hapus user:", error);
@@ -119,7 +124,8 @@ function KelolaPengguna() {
                 </td>
                 <td>{user.depotId || 'Pusat'}</td>
                 <td className="flex gap-2">
-                  {user.role === 'Menunggu Persetujuan' ? (
+                  {user.role === 'Menunggu Persetujuan' ?
+                  (
                     <button onClick={() => handleEditClick(user)} className="btn btn-sm btn-success">Setujui</button>
                   ) : (
                     <button onClick={() => handleEditClick(user)} className="btn btn-sm btn-info">Edit</button>
