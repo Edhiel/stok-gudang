@@ -1,15 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { ref, onValue, get, push, serverTimestamp } from 'firebase/database';
-import { db } from '../firebaseConfig';
+import { collection, onSnapshot, getDoc, doc, addDoc, serverTimestamp } from 'firebase/firestore';
+import { firestoreDb } from '../firebaseConfig';
 import CameraBarcodeScanner from './CameraBarcodeScanner';
 import toast from 'react-hot-toast';
 
-function FakturTertunda({ userProfile }) {
-  const [salesName, setSalesName] = useState('');
-  const [storeName, setStoreName] = useState('');
+function FakturTertunda({ userProfile, setPage }) {
+  const [salesName, setSalesName] = useState(userProfile.fullName || '');
+  const [storeId, setStoreId] = useState('');
   const [driverName, setDriverName] = useState('');
   const [licensePlate, setLicensePlate] = useState('');
-  const [availableItems, setAvailableItems] = useState([]);
+  
+  const [masterItems, setMasterItems] = useState([]);
+  const [tokoList, setTokoList] = useState([]);
+  const [stockData, setStockData] = useState({});
+
+  // --- STATE BARU UNTUK PENCARIAN TOKO ---
+  const [tokoSearchTerm, setTokoSearchTerm] = useState('');
+  const [isTokoSelected, setIsTokoSelected] = useState(false);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [itemStock, setItemStock] = useState(0);
@@ -18,43 +26,68 @@ function FakturTertunda({ userProfile }) {
   const [pcsQty, setPcsQty] = useState(0);
   const [transactionItems, setTransactionItems] = useState([]);
   const [showScanner, setShowScanner] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (!userProfile.depotId) return;
-    const masterItemsRef = ref(db, 'master_items');
-    onValue(masterItemsRef, (snapshot) => {
-        const data = snapshot.val();
-        const itemList = data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : [];
-        setAvailableItems(itemList);
+    
+    const unsubItems = onSnapshot(collection(firestoreDb, 'master_items'), (snapshot) => {
+        setMasterItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
+    const unsubToko = onSnapshot(collection(firestoreDb, 'master_toko'), (snapshot) => {
+        setTokoList(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    const stockRef = collection(firestoreDb, `depots/${userProfile.depotId}/stock`);
+    const unsubStock = onSnapshot(stockRef, (snapshot) => {
+        const stocks = snapshot.docs.reduce((acc, doc) => {
+            acc[doc.id] = doc.data().totalStockInPcs || 0;
+            return acc;
+        }, {});
+        setStockData(stocks);
+    });
+
+    return () => {
+        unsubItems();
+        unsubToko();
+        unsubStock();
+    };
   }, [userProfile.depotId]);
 
   const handleBarcodeDetected = (scannedBarcode) => {
+    const availableItems = masterItems.filter(item => (stockData[item.id] || 0) > 0);
     const foundItem = availableItems.find(item => item.barcodePcs === scannedBarcode || item.barcodeDos === scannedBarcode);
     if (foundItem) {
       handleSelectItem(foundItem);
     } else {
-      toast.error("Barang tidak ditemukan.");
+      toast.error("Barang tidak ditemukan atau stok kosong.");
     }
     setShowScanner(false);
   };
 
-  const handleSelectItem = async (item) => {
+  const handleSelectItem = (item) => {
     setSelectedItem(item);
     setSearchTerm(item.name);
-    const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${item.id}/totalStockInPcs`);
-    const snapshot = await get(stockRef);
-    setItemStock(snapshot.exists() ? snapshot.val() : 0);
+    setItemStock(stockData[item.id] || 0);
   };
-  
+
+  // --- LOGIKA BARU UNTUK MEMILIH TOKO DARI DAFTAR PENCARIAN ---
+  const handleSelectToko = (toko) => {
+      setStoreId(toko.id);
+      setTokoSearchTerm(toko.namaToko);
+      setIsTokoSelected(true); // Tandai bahwa toko sudah dipilih
+  };
+
   const handleAddItemToList = (isBonus = false) => {
     if (!selectedItem) { toast.error("Pilih barang dulu."); return; }
+    
     const totalPcs = (Number(dosQty) * (selectedItem.conversions.Dos?.inPcs || 1)) + (Number(packQty) * (selectedItem.conversions.Pack?.inPcs || 1)) + (Number(pcsQty));
     if (totalPcs <= 0) { toast.error("Masukkan jumlah yang valid."); return; }
     if (totalPcs > itemStock) {
         toast.error(`Stok tidak cukup! Sisa stok ${selectedItem.name} hanya ${itemStock} Pcs.`);
         return;
     }
+    
     const newItem = {
       id: selectedItem.id, name: selectedItem.name, quantityInPcs: totalPcs,
       displayQty: `${dosQty}.${packQty}.${pcsQty}`, isBonus: isBonus
@@ -68,39 +101,52 @@ function FakturTertunda({ userProfile }) {
   };
 
   const handleSavePendingInvoice = async () => {
-    if (!salesName || !storeName || transactionItems.length === 0) {
-      toast.error("Nama Sales, Nama Toko, dan minimal 1 barang wajib diisi.");
-      return;
+    if (!salesName || !storeId || transactionItems.length === 0) {
+      return toast.error("Nama Sales, Nama Toko, dan minimal 1 barang wajib diisi.");
     }
+    setIsSubmitting(true);
+    
+    const selectedToko = tokoList.find(t => t.id === storeId);
 
     try {
-      const pendingInvoicesRef = ref(db, `depots/${userProfile.depotId}/pendingInvoices`);
-      await push(pendingInvoicesRef, {
+      const pendingInvoicesRef = collection(firestoreDb, `depots/${userProfile.depotId}/pendingInvoices`);
+      await addDoc(pendingInvoicesRef, {
         status: 'Menunggu Faktur',
-        salesName, storeName, driverName, licensePlate,
+        salesName, 
+        storeId,
+        storeName: selectedToko.namaToko, 
+        driverName, 
+        licensePlate,
         items: transactionItems,
         createdBy: userProfile.fullName,
         createdAt: serverTimestamp()
       });
-
       toast.success("Tanda terima berhasil disimpan sebagai 'Faktur Tertunda'.");
-      setSalesName(''); setStoreName(''); setDriverName(''); setLicensePlate('');
+      setSalesName(userProfile.fullName); setStoreId(''); setDriverName(''); setLicensePlate('');
       setTransactionItems([]);
-
+      setTokoSearchTerm(''); setIsTokoSelected(false);
+      if(setPage) setPage('dashboard');
     } catch (err) {
       toast.error(`Gagal menyimpan: ${err.message}`);
       console.error(err);
+    } finally {
+        setIsSubmitting(false);
     }
   };
-  
+
+  const availableItemsForSearch = masterItems.filter(item => (stockData[item.id] || 0) > 0);
   const filteredItems = searchTerm.length > 0 
-    ? availableItems.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    ? availableItemsForSearch.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    : [];
+  
+  const filteredToko = tokoSearchTerm.length > 0
+    ? tokoList.filter(toko => toko.namaToko.toLowerCase().includes(tokoSearchTerm.toLowerCase()))
     : [];
 
   return (
     <>
       {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
-      <div className="p-8">
+      <div className="p-4 sm:p-8">
         <div className="card bg-white shadow-lg w-full">
           <div className="card-body">
             <h2 className="card-title text-2xl">Buat Tanda Terima (Faktur Tertunda)</h2>
@@ -109,10 +155,30 @@ function FakturTertunda({ userProfile }) {
                 <label className="label"><span className="label-text font-bold">Nama Sales</span></label>
                 <input type="text" value={salesName} onChange={(e) => setSalesName(e.target.value)} className="input input-bordered" />
               </div>
-              <div className="form-control">
+              
+              {/* --- INPUT PENCARIAN TOKO BARU --- */}
+              <div className="form-control dropdown">
                 <label className="label"><span className="label-text font-bold">Nama Toko Tujuan</span></label>
-                <input type="text" value={storeName} onChange={(e) => setStoreName(e.target.value)} className="input input-bordered" />
+                <input 
+                    type="text" 
+                    value={tokoSearchTerm} 
+                    onChange={(e) => {
+                        setTokoSearchTerm(e.target.value);
+                        setStoreId(''); // Reset ID saat pengguna mengetik
+                        setIsTokoSelected(false);
+                    }} 
+                    placeholder="Ketik nama toko..." 
+                    className="input input-bordered w-full" 
+                />
+                {filteredToko.length > 0 && !isTokoSelected && (
+                  <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">
+                    {filteredToko.slice(0, 5).map(toko => (
+                      <li key={toko.id}><a onClick={() => handleSelectToko(toko)}>{toko.namaToko}</a></li>
+                    ))}
+                  </ul>
+                )}
               </div>
+
               <div className="form-control">
                 <label className="label"><span className="label-text">Nama Sopir</span></label>
                 <input type="text" value={driverName} onChange={(e) => setDriverName(e.target.value)} className="input input-bordered" />
@@ -122,6 +188,7 @@ function FakturTertunda({ userProfile }) {
                 <input type="text" value={licensePlate} onChange={(e) => setLicensePlate(e.target.value)} className="input input-bordered" />
               </div>
             </div>
+
             <div className="divider">Tambah Barang ke Daftar</div>
             <div className="p-4 border rounded-lg bg-base-200">
               <div className="form-control dropdown">
@@ -154,6 +221,7 @@ function FakturTertunda({ userProfile }) {
                 </div>
               )}
             </div>
+
             <div className="divider">Barang dalam Tanda Terima Ini</div>
             <div className="overflow-x-auto">
               <table className="table w-full">
@@ -161,10 +229,7 @@ function FakturTertunda({ userProfile }) {
                 <tbody>
                   {transactionItems.map((item, index) => (
                     <tr key={index}>
-                      <td>
-                        {item.name}
-                        {item.isBonus && <span className="badge badge-info badge-sm ml-2">Bonus</span>}
-                      </td>
+                      <td>{item.name} {item.isBonus && <span className="badge badge-info badge-sm ml-2">Bonus</span>}</td>
                       <td>{item.displayQty}</td>
                       <td><button onClick={() => handleRemoveFromList(index)} className="btn btn-xs btn-error">Hapus</button></td>
                     </tr>
@@ -173,7 +238,9 @@ function FakturTertunda({ userProfile }) {
               </table>
             </div>
             <div className="form-control mt-6">
-              <button type="button" onClick={handleSavePendingInvoice} className="btn btn-warning btn-lg" disabled={transactionItems.length === 0}>Simpan Tanda Terima</button>
+              <button type="button" onClick={handleSavePendingInvoice} className="btn btn-warning btn-lg" disabled={isSubmitting || transactionItems.length === 0}>
+                {isSubmitting ? <span className="loading loading-spinner"></span> : 'Simpan Tanda Terima'}
+              </button>
             </div>
           </div>
         </div>
@@ -181,4 +248,5 @@ function FakturTertunda({ userProfile }) {
     </>
   );
 }
+
 export default FakturTertunda;
