@@ -1,15 +1,12 @@
-// BARU: Impor fungsi firestore dan 'db' dari firebaseConfig
-import { doc, getDoc } from 'firebase/firestore';
 import React, { useState, useEffect } from 'react';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-// BARU: pastikan 'db' juga diekspor dari firebaseConfig dan diimpor di sini
-import { auth, db } from '../firebaseConfig'; 
+import { auth } from '../firebaseConfig'; // Cukup impor 'auth' saja
 
 const EyeIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.022 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" /></svg>;
 const EyeSlashIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" /><path fillRule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" /></svg>;
 
-// BARU: Tambahkan prop 'onLoginSuccess' untuk mengirim data profil ke App.jsx
-function Login({ setPage, onLoginSuccess }) {
+// Hapus prop 'onLoginSuccess' karena tidak dibutuhkan lagi
+function Login({ setPage }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -31,28 +28,10 @@ function Login({ setPage, onLoginSuccess }) {
     setError('');
 
     try {
-      // Langkah 1: Login dengan Firebase Auth (kode ini sudah benar)
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
+      // Kode ini HANYA melakukan login. Setelah sukses, App.jsx akan mengambil alih.
+      await signInWithEmailAndPassword(auth, email, password);
 
-      // --- BAGIAN BARU DIMULAI DI SINI ---
-      
-      // Langkah 2: Ambil data profil dari Firestore
-      const userDocRef = doc(db, 'users', user.uid); // Membuat referensi ke dokumen user
-      const docSnap = await getDoc(userDocRef); // Mengambil dokumen
-
-      if (docSnap.exists()) {
-        // Langkah 3: Jika dokumen ada, kirim data profil ke komponen induk (App.jsx)
-        onLoginSuccess(docSnap.data());
-      } else {
-        // Jika profil tidak ditemukan di firestore, tampilkan error
-        setError('Profil pengguna tidak ditemukan di database.');
-        // Optional: logout pengguna jika profil tidak ada
-        // await auth.signOut(); 
-      }
-      
-      // --- BAGIAN BARU SELESAI ---
-
+      // Logika "Ingat Saya" tetap ada
       if (rememberMe) {
         localStorage.setItem('rememberedEmail', email);
         localStorage.setItem('rememberedPassword', password);
@@ -64,12 +43,14 @@ function Login({ setPage, onLoginSuccess }) {
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
         setError('Email atau password salah.');
       } else {
+        // Ini adalah error yang mungkin muncul jika ada masalah jaringan, dll.
         setError('Terjadi kesalahan. Coba lagi nanti.');
       }
       console.error("Error saat login:", err);
     }
   };
 
+  // Bagian JSX (return) tidak ada perubahan, biarkan seperti yang sudah ada
   return (
     <div className="flex justify-center items-center p-4">
       <div className="card w-full max-w-md shadow-2xl bg-base-100">
