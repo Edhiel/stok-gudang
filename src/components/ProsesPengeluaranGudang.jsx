@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ref, onValue, get, update, push, serverTimestamp, runTransaction, query, orderByChild, equalTo } from 'firebase/database';
-import { db } from '../firebaseConfig';
+// --- 1. IMPORT BARU DARI FIRESTORE ---
+import { collection, query, where, onSnapshot, doc, getDoc, runTransaction, addDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { firestoreDb } from '../firebaseConfig';
 import toast from 'react-hot-toast';
 
 function ProsesPengeluaranGudang({ userProfile }) {
@@ -8,42 +9,41 @@ function ProsesPengeluaranGudang({ userProfile }) {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
-  
-  // State baru untuk menyimpan rencana pengambilan (picking plan)
   const [pickingPlan, setPickingPlan] = useState([]);
+  const [isSubmitting, setIsSubmitting] = useState(false); // Penyempurnaan: Tambah state submitting
 
+  // --- 2. LOGIKA BARU MENGAMBIL DATA DARI FIRESTORE ---
   useEffect(() => {
     if (!userProfile.depotId) return;
 
-    const ordersRef = ref(db, `depots/${userProfile.depotId}/salesOrders`);
-    const readyToShipQuery = query(ordersRef, orderByChild('status'), equalTo('Siap Dikirim (Sudah Difakturkan)'));
+    const ordersRef = collection(firestoreDb, `depots/${userProfile.depotId}/salesOrders`);
+    const q = query(ordersRef, where('status', '==', 'Siap Dikirim (Sudah Difakturkan)'));
     
-    const unsubscribe = onValue(readyToShipQuery, (snapshot) => {
-      const data = snapshot.val() || {};
-      const loadedOrders = Object.keys(data).map(key => ({ id: key, ...data[key] }));
-      setReadyOrders(loadedOrders.sort((a, b) => b.createdAt - a.createdAt));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const loadedOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setReadyOrders(loadedOrders.sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis()));
       setLoading(false);
     });
 
     return () => unsubscribe();
   }, [userProfile.depotId]);
 
-  // --- LOGIKA UTAMA FEFO DIMULAI DI SINI ---
   const generatePickingPlan = async (order) => {
+    toast.loading('Membuat rencana ambil barang...', { id: 'picking-plan' });
     const plan = [];
     let isStockAvailable = true;
 
     for (const item of order.items) {
-        const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${item.id}`);
-        const snapshot = await get(stockRef);
+        const stockDocRef = doc(firestoreDb, `depots/${userProfile.depotId}/stock/${item.id}`);
+        const snapshot = await getDoc(stockDocRef);
 
-        if (!snapshot.exists() || !snapshot.val().batches) {
+        if (!snapshot.exists() || !snapshot.data().batches) {
             toast.error(`Stok batch untuk ${item.name} tidak ditemukan!`);
             isStockAvailable = false;
             break;
         }
 
-        const batches = snapshot.val().batches;
+        const batches = snapshot.data().batches;
         const sortedBatches = Object.keys(batches)
             .map(key => ({ batchId: key, ...batches[key] }))
             .sort((a, b) => new Date(a.expireDate) - new Date(b.expireDate));
@@ -53,14 +53,9 @@ function ProsesPengeluaranGudang({ userProfile }) {
 
         for (const batch of sortedBatches) {
             if (quantityToPick <= 0) break;
-
             const pickAmount = Math.min(quantityToPick, batch.quantity);
             
-            pickedFromBatches.push({
-                ...batch,
-                qtyToPick: pickAmount
-            });
-
+            pickedFromBatches.push({ ...batch, qtyToPick: pickAmount });
             quantityToPick -= pickAmount;
         }
 
@@ -78,6 +73,7 @@ function ProsesPengeluaranGudang({ userProfile }) {
         });
     }
 
+    toast.dismiss('picking-plan');
     if (isStockAvailable) {
         setPickingPlan(plan);
         setSelectedOrder(order);
@@ -87,60 +83,75 @@ function ProsesPengeluaranGudang({ userProfile }) {
     }
   };
 
+  // --- 3. LOGIKA BARU KONFIRMASI PENGELUARAN DENGAN TRANSAKSI FIRESTORE ---
   const handleConfirmDispatch = async () => {
     if (!window.confirm(`Konfirmasi pengeluaran barang untuk faktur ${selectedOrder.invoiceNumber}? Stok akan dipotong secara permanen.`)) return;
+    setIsSubmitting(true);
+    toast.loading('Memproses pengeluaran stok...', { id: 'dispatch-confirm' });
 
     try {
-      // 1. Kurangi stok dari setiap batch yang ada di picking plan
-      for (const planItem of pickingPlan) {
-        const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${planItem.itemId}`);
-        
-        await runTransaction(stockRef, (currentStock) => {
-          if (currentStock && currentStock.batches) {
-            for (const pickedBatch of planItem.pickedFromBatches) {
-              const batchInDb = currentStock.batches[pickedBatch.batchId];
-              if (batchInDb) {
-                batchInDb.quantity -= pickedBatch.qtyToPick;
-                if (batchInDb.quantity <= 0) {
-                  // Hapus batch jika stoknya habis
-                  delete currentStock.batches[pickedBatch.batchId];
-                }
-              }
-            }
-            // Kurangi juga stok yang dialokasikan
-            const orderItem = selectedOrder.items.find(i => i.id === planItem.itemId);
-            currentStock.allocatedStockInPcs = (currentStock.allocatedStockInPcs || 0) - orderItem.quantityInPcs;
-          }
-          return currentStock;
-        });
-      }
+        await runTransaction(firestoreDb, async (transaction) => {
+            // 1. Kurangi stok dari setiap batch
+            for (const planItem of pickingPlan) {
+                const stockDocRef = doc(firestoreDb, `depots/${userProfile.depotId}/stock/${planItem.itemId}`);
+                const stockDoc = await transaction.get(stockDocRef);
 
-      // 2. Buat log transaksi "Stok Keluar"
-      const transactionsRef = ref(db, `depots/${userProfile.depotId}/transactions`);
-      await push(transactionsRef, {
+                if (!stockDoc.exists()) {
+                    throw new Error(`Stok untuk ${planItem.itemName} tidak ditemukan.`);
+                }
+                
+                let currentStockData = stockDoc.data();
+                
+                for (const pickedBatch of planItem.pickedFromBatches) {
+                    const batchInDb = currentStockData.batches[pickedBatch.batchId];
+                    if (batchInDb && batchInDb.quantity >= pickedBatch.qtyToPick) {
+                        batchInDb.quantity -= pickedBatch.qtyToPick;
+                        if (batchInDb.quantity <= 0) {
+                            delete currentStockData.batches[pickedBatch.batchId];
+                        }
+                    } else {
+                        throw new Error(`Stok batch untuk ${planItem.itemName} tidak konsisten.`);
+                    }
+                }
+                
+                const orderItem = selectedOrder.items.find(i => i.id === planItem.itemId);
+                currentStockData.allocatedStockInPcs = (currentStockData.allocatedStockInPcs || 0) - orderItem.quantityInPcs;
+                
+                transaction.set(stockDocRef, currentStockData);
+            }
+
+            // 2. Update status order menjadi "Selesai"
+            const orderDocRef = doc(firestoreDb, `depots/${userProfile.depotId}/salesOrders/${selectedOrder.id}`);
+            transaction.update(orderDocRef, { status: 'Selesai' });
+        });
+
+      // 3. Buat log transaksi "Stok Keluar" (setelah transaksi utama sukses)
+      const transactionsRef = collection(firestoreDb, `depots/${userProfile.depotId}/transactions`);
+      await addDoc(transactionsRef, {
         type: 'Stok Keluar (FEFO)',
         invoiceNumber: selectedOrder.invoiceNumber,
         storeName: selectedOrder.storeName,
+        storeId: selectedOrder.storeId,
         items: selectedOrder.items,
-        pickingPlan: pickingPlan, // Simpan juga picking plan untuk audit
+        pickingPlan: pickingPlan,
         user: userProfile.fullName,
         timestamp: serverTimestamp()
       });
 
-      // 3. Update status order menjadi "Selesai"
-      const orderRef = ref(db, `depots/${userProfile.depotId}/salesOrders/${selectedOrder.id}`);
-      await update(orderRef, { status: 'Selesai' });
-
+      toast.dismiss('dispatch-confirm');
       toast.success("Barang berhasil dikeluarkan dan transaksi selesai.");
       setIsModalOpen(false);
       setPickingPlan([]);
       setSelectedOrder(null);
 
     } catch (error) {
+      toast.dismiss('dispatch-confirm');
       toast.error(`Gagal konfirmasi: ${error.message}`);
+      console.error(error);
+    } finally {
+        setIsSubmitting(false);
     }
   };
-
   return (
     <div className="p-4 md:p-8">
       <h1 className="text-3xl font-bold mb-6">Daftar Pengeluaran Barang (Gudang)</h1>
@@ -155,7 +166,7 @@ function ProsesPengeluaranGudang({ userProfile }) {
             : readyOrders.length === 0 ? (<tr><td colSpan="5" className="text-center">Tidak ada barang yang siap untuk dikeluarkan.</td></tr>)
             : (readyOrders.map(order => (
                 <tr key={order.id} className="hover">
-                  <td>{new Date(order.createdAt).toLocaleDateString('id-ID')}</td>
+                  <td>{order.createdAt.toDate().toLocaleDateString('id-ID')}</td>
                   <td className="font-bold">{order.invoiceNumber}</td>
                   <td>{order.storeName}</td>
                   <td>{order.processedBy}</td>
@@ -204,8 +215,10 @@ function ProsesPengeluaranGudang({ userProfile }) {
             </div>
 
             <div className="modal-action mt-6">
-                <button onClick={() => setIsModalOpen(false)} className="btn btn-ghost">Batal</button>
-                <button onClick={handleConfirmDispatch} className="btn btn-primary">Konfirmasi & Selesaikan Pengeluaran</button>
+                <button onClick={() => setIsModalOpen(false)} className="btn btn-ghost" disabled={isSubmitting}>Batal</button>
+                <button onClick={handleConfirmDispatch} className="btn btn-primary" disabled={isSubmitting}>
+                    {isSubmitting ? <span className="loading loading-spinner"></span> : 'Konfirmasi & Selesaikan'}
+                </button>
             </div>
           </div>
         </div>
