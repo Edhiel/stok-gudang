@@ -1,25 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import { ref, onValue, get, runTransaction, push, serverTimestamp, query, orderByChild, equalTo, update } from 'firebase/database';
-import { db as firebaseDb } from '../firebaseConfig';
-import { db as offlineDb, addOrderToQueue, getQueuedOrders, removeOrderFromQueue } from '../offlineDb';
+// --- 1. IMPORT BARU DARI FIRESTORE ---
+import { collection, query, where, onSnapshot, getDoc, doc, runTransaction, addDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { firestoreDb } from '../firebaseConfig';
+import { addOrderToQueue, getQueuedOrders, removeOrderFromQueue } from '../offlineDb';
 import CameraBarcodeScanner from './CameraBarcodeScanner';
 import toast from 'react-hot-toast';
 
-// Komponen untuk menampilkan daftar order yang sudah dibuat
 const DaftarOrder = ({ userProfile, setView, setEditingOrder, pendingSyncCount }) => {
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const ordersRef = ref(firebaseDb, `depots/${userProfile.depotId}/salesOrders`);
-        const salesQuery = query(ordersRef, orderByChild('salesName'), equalTo(userProfile.fullName));
+        if (!userProfile || !userProfile.depotId || !userProfile.fullName) return;
         
-        onValue(salesQuery, (snapshot) => {
-            const data = snapshot.val() || {};
-            const orderList = Object.keys(data).map(key => ({ id: key, ...data[key] })).sort((a,b) => b.createdAt - a.createdAt);
+        const ordersRef = collection(firestoreDb, `depots/${userProfile.depotId}/salesOrders`);
+        const salesQuery = query(ordersRef, where('salesName', '==', userProfile.fullName));
+        
+        const unsubscribe = onSnapshot(salesQuery, (snapshot) => {
+            const orderList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+                .sort((a,b) => b.createdAt?.toMillis() - a.createdAt?.toMillis());
             setOrders(orderList);
             setLoading(false);
         });
+
+        return () => unsubscribe();
     }, [userProfile]);
 
     return (
@@ -38,13 +42,15 @@ const DaftarOrder = ({ userProfile, setView, setEditingOrder, pendingSyncCount }
                 <table className="table w-full">
                     <thead><tr><th>No. Order</th><th>Nama Toko</th><th>Tanggal</th><th>Status</th><th>Aksi</th></tr></thead>
                     <tbody>
-                        {loading ? (<tr><td colSpan="5" className="text-center"><span className="loading loading-dots"></span></td></tr>)
-                        : orders.length === 0 ? (<tr><td colSpan="5" className="text-center">Belum ada order dibuat.</td></tr>)
+                        {loading ?
+                        (<tr><td colSpan="5" className="text-center"><span className="loading loading-dots"></span></td></tr>)
+                        : orders.length === 0 ?
+                        (<tr><td colSpan="5" className="text-center">Belum ada order dibuat.</td></tr>)
                         : (orders.map(order => (
                             <tr key={order.id}>
                                 <td className="font-semibold">{order.orderNumber}</td>
                                 <td>{order.storeName}</td>
-                                <td>{new Date(order.createdAt).toLocaleDateString('id-ID')}</td>
+                                <td>{order.createdAt?.toDate().toLocaleDateString('id-ID')}</td>
                                 <td><span className={`badge ${order.status === 'Menunggu Approval Admin' ? 'badge-warning' : 'badge-success'}`}>{order.status}</span></td>
                                 <td>
                                     {order.status === 'Menunggu Approval Admin' && (
@@ -62,10 +68,10 @@ const DaftarOrder = ({ userProfile, setView, setEditingOrder, pendingSyncCount }
     );
 };
 
-// Komponen untuk Form membuat dan mengedit order
 const FormOrder = ({ userProfile, setView, existingOrder, syncOfflineOrders }) => {
   const [orderNumber, setOrderNumber] = useState(existingOrder?.orderNumber || '');
-  const [storeName, setStoreName] = useState(existingOrder?.storeName || '');
+  const [storeId, setStoreId] = useState(existingOrder?.storeId || '');
+  const [tokoList, setTokoList] = useState([]);
   const [availableItems, setAvailableItems] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
@@ -81,18 +87,39 @@ const FormOrder = ({ userProfile, setView, existingOrder, syncOfflineOrders }) =
 
   useEffect(() => {
     if (!userProfile.depotId) return;
-    const masterItemsRef = ref(firebaseDb, 'master_items');
-    get(masterItemsRef).then((masterSnapshot) => {
-      const masterItems = masterSnapshot.val() || {};
-      const stockRef = ref(firebaseDb, `depots/${userProfile.depotId}/stock`);
-      onValue(stockRef, (stockSnapshot) => {
-        const stockData = stockSnapshot.val() || {};
-        const available = Object.keys(stockData)
-          .filter(itemId => (stockData[itemId].totalStockInPcs || 0) > 0)
-          .map(itemId => ({ id: itemId, ...masterItems[itemId], totalStockInPcs: stockData[itemId].totalStockInPcs }));
+
+    // Ambil data Toko dari Firestore
+    const unsubToko = onSnapshot(collection(firestoreDb, 'master_toko'), (snapshot) => {
+        const loadedToko = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setTokoList(loadedToko.sort((a, b) => a.namaToko.localeCompare(b.namaToko)));
+    });
+
+    // Ambil data master barang dari Firestore
+    const masterItemsRef = collection(firestoreDb, 'master_items');
+    getDocs(masterItemsRef).then((masterSnapshot) => {
+      const masterItems = masterSnapshot.docs.reduce((acc, doc) => {
+          acc[doc.id] = { id: doc.id, ...doc.data() };
+          return acc;
+      }, {});
+
+      // Ambil data stok dari sub-koleksi di Firestore
+      const stockRef = collection(firestoreDb, `depots/${userProfile.depotId}/stock`);
+      const unsubStock = onSnapshot(stockRef, (stockSnapshot) => {
+        const available = stockSnapshot.docs
+          .filter(doc => (doc.data().totalStockInPcs || 0) > 0)
+          .map(doc => ({ 
+              id: doc.id, 
+              ...masterItems[doc.id], 
+              totalStockInPcs: doc.data().totalStockInPcs 
+          }));
         setAvailableItems(available);
       });
+      return unsubStock;
     });
+
+    return () => {
+        unsubToko();
+    };
   }, [userProfile.depotId]);
 
   const handleBarcodeDetected = (scannedBarcode) => {
@@ -110,29 +137,41 @@ const FormOrder = ({ userProfile, setView, existingOrder, syncOfflineOrders }) =
     setSearchTerm(item.name);
     setItemStock(item.totalStockInPcs);
   };
-  
+
   const handleAddItemToList = () => {
     if (!selectedItem) { toast.error("Pilih barang dulu."); return; }
     const totalPcs = (Number(dosQty) * (selectedItem.conversions.Dos?.inPcs || 1)) + (Number(packQty) * (selectedItem.conversions.Pack?.inPcs || 1)) + (Number(pcsQty));
     if (totalPcs <= 0) { toast.error("Masukkan jumlah yang valid."); return; }
     if (totalPcs > itemStock) { toast.error(`Stok tidak cukup! Sisa stok hanya ${itemStock} Pcs.`); return; }
-    setOrderItems([...orderItems, { id: selectedItem.id, name: selectedItem.name, quantityInPcs: totalPcs, displayQty: `${dosQty}.${packQty}.${pcsQty}` }]);
+    
+    setOrderItems([...orderItems, { 
+        id: selectedItem.id, 
+        name: selectedItem.name, 
+        quantityInPcs: totalPcs, 
+        displayQty: `${dosQty}.${packQty}.${pcsQty}` 
+    }]);
     setSelectedItem(null); setSearchTerm(''); setDosQty(0); setPackQty(0); setPcsQty(0);
   };
 
   const handleRemoveFromList = (indexToRemove) => {
     setOrderItems(orderItems.filter((_, index) => index !== indexToRemove));
   };
-  
+
   const handleSaveOrder = async () => {
-    if (!orderNumber || !storeName || orderItems.length === 0) {
+    if (!orderNumber || !storeId || orderItems.length === 0) {
       return toast.error("No. Order, Nama Toko, dan minimal 1 barang wajib diisi.");
     }
     setIsSubmitting(true);
 
+    const selectedToko = tokoList.find(t => t.id === storeId);
+
     const orderData = {
-      orderNumber, storeName, items: orderItems,
-      depotId: userProfile.depotId, salesName: userProfile.fullName,
+      orderNumber, 
+      storeId,
+      storeName: selectedToko.namaToko, 
+      items: orderItems,
+      depotId: userProfile.depotId, 
+      salesName: userProfile.fullName,
       status: 'Menunggu Approval Admin',
       ...(isEditMode && { orderId: existingOrder.id, oldItems: existingOrder.items })
     };
@@ -151,7 +190,7 @@ const FormOrder = ({ userProfile, setView, existingOrder, syncOfflineOrders }) =
     setIsSubmitting(false);
   };
   
-    const filteredItems = searchTerm.length > 0
+  const filteredItems = searchTerm.length > 0
     ? availableItems.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
     : [];
 
@@ -167,7 +206,12 @@ const FormOrder = ({ userProfile, setView, existingOrder, syncOfflineOrders }) =
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 p-4 border rounded-lg">
               <div className="form-control"><label className="label"><span className="label-text font-bold">No. Order / PO</span></label><input type="text" value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} className="input input-bordered" /></div>
-              <div className="form-control"><label className="label"><span className="label-text font-bold">Nama Toko</span></label><input type="text" value={storeName} onChange={(e) => setStoreName(e.target.value)} className="input input-bordered" /></div>
+              <div className="form-control"><label className="label"><span className="label-text font-bold">Nama Toko</span></label>
+                <select className="select select-bordered" value={storeId} onChange={(e) => setStoreId(e.target.value)}>
+                    <option value="">Pilih Toko</option>
+                    {tokoList.map(toko => <option key={toko.id} value={toko.id}>{toko.namaToko}</option>)}
+                </select>
+              </div>
             </div>
             <div className="divider">Detail Barang</div>
             <div className="p-4 border rounded-lg bg-base-200">
@@ -195,14 +239,12 @@ const FormOrder = ({ userProfile, setView, existingOrder, syncOfflineOrders }) =
     </>
   );
 };
-// Komponen Utama
 function BuatOrder({ userProfile }) {
-  const [view, setView] = useState('list'); // list, create, edit
+  const [view, setView] = useState('list');
   const [editingOrder, setEditingOrder] = useState(null);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Fungsi untuk sinkronisasi order offline ke Firebase
   const syncOfflineOrders = async (ordersToSync, isOnlineSave = false) => {
       if(isSyncing && !isOnlineSave) return;
       setIsSyncing(true);
@@ -210,57 +252,57 @@ function BuatOrder({ userProfile }) {
       let successCount = 0;
       for (const order of ordersToSync) {
           try {
-              // Jika ini mode edit, kembalikan stok lama dulu
-              if (order.orderId && order.oldItems) {
-                  for (const oldItem of order.oldItems) {
-                      const stockRef = ref(firebaseDb, `depots/${order.depotId}/stock/${oldItem.id}`);
-                      await runTransaction(stockRef, (stock) => {
-                          if (stock) {
-                              stock.allocatedStockInPcs = (stock.allocatedStockInPcs || 0) - oldItem.quantityInPcs;
-                              stock.totalStockInPcs = (stock.totalStockInPcs || 0) + oldItem.quantityInPcs;
+              // --- 2. LOGIKA TRANSAKSI BARU UNTUK FIRESTORE ---
+              await runTransaction(firestoreDb, async (transaction) => {
+                  // Jika ini mode edit, kembalikan stok lama dulu
+                  if (order.orderId && order.oldItems) {
+                      for (const oldItem of order.oldItems) {
+                          const stockDocRef = doc(firestoreDb, `depots/${order.depotId}/stock/${oldItem.id}`);
+                          const stockDoc = await transaction.get(stockDocRef);
+                          if (stockDoc.exists()) {
+                              const newAllocated = (stockDoc.data().allocatedStockInPcs || 0) - oldItem.quantityInPcs;
+                              const newTotal = (stockDoc.data().totalStockInPcs || 0) + oldItem.quantityInPcs;
+                              transaction.update(stockDocRef, { allocatedStockInPcs: newAllocated, totalStockInPcs: newTotal });
                           }
-                          return stock;
-                      });
+                      }
                   }
-              }
-              // Alokasikan stok baru
-              for (const item of order.items) {
-                  const stockRef = ref(firebaseDb, `depots/${order.depotId}/stock/${item.id}`);
-                  await runTransaction(stockRef, (stock) => {
-                      if (stock && (stock.totalStockInPcs || 0) >= item.quantityInPcs) {
-                          stock.totalStockInPcs -= item.quantityInPcs;
-                          stock.allocatedStockInPcs = (stock.allocatedStockInPcs || 0) + item.quantityInPcs;
-                          return stock;
-                      } else {
+
+                  // Alokasikan stok baru
+                  for (const item of order.items) {
+                      const stockDocRef = doc(firestoreDb, `depots/${order.depotId}/stock/${item.id}`);
+                      const stockDoc = await transaction.get(stockDocRef);
+                      if (!stockDoc.exists() || (stockDoc.data().totalStockInPcs || 0) < item.quantityInPcs) {
                           throw new Error(`Stok ${item.name} tidak cukup.`);
                       }
-                  });
-              }
+                      const newTotal = stockDoc.data().totalStockInPcs - item.quantityInPcs;
+                      const newAllocated = (stockDoc.data().allocatedStockInPcs || 0) + item.quantityInPcs;
+                      transaction.update(stockDocRef, { totalStockInPcs: newTotal, allocatedStockInPcs: newAllocated });
+                  }
 
-              // Simpan/Update data order ke Firebase
-              const dataToSave = {
-                  orderNumber: order.orderNumber, storeName: order.storeName, items: order.items,
-                  status: order.status, salesName: order.salesName, createdAt: serverTimestamp()
-              };
+                  // Simpan/Update data order ke Firestore
+                  const dataToSave = {
+                      orderNumber: order.orderNumber, storeId: order.storeId, storeName: order.storeName, 
+                      items: order.items, status: order.status, salesName: order.salesName, 
+                      createdAt: serverTimestamp()
+                  };
 
-              if (order.orderId) { // Mode Edit
-                  const orderRef = ref(firebaseDb, `depots/${order.depotId}/salesOrders/${order.orderId}`);
-                  await update(orderRef, dataToSave);
-              } else { // Mode Create
-                  const ordersRef = ref(firebaseDb, `depots/${order.depotId}/salesOrders`);
-                  await push(ordersRef, dataToSave);
-              }
+                  if (order.orderId) { // Mode Edit
+                      const orderDocRef = doc(firestoreDb, `depots/${order.depotId}/salesOrders/${order.orderId}`);
+                      transaction.update(orderDocRef, dataToSave);
+                  } else { // Mode Create
+                      const newOrderRef = doc(collection(firestoreDb, `depots/${order.depotId}/salesOrders`));
+                      transaction.set(newOrderRef, dataToSave);
+                  }
+              });
 
-              // Jika ini dari antrean offline, hapus dari IndexedDB
               if (order.localId) {
                   await removeOrderFromQueue(order.localId);
               }
               successCount++;
           } catch (err) {
               toast.error(`Gagal sinkronisasi order ${order.orderNumber}: ${err.message}`);
-              // PENTING: Jika gagal, stok yang sudah terlanjur dialokasikan harus dikembalikan
-              // Logika ini bisa ditambahkan untuk membuatnya lebih tangguh
-              break; 
+              // Di Firestore, transaksi bersifat atomik. Jika gagal, tidak ada perubahan yang disimpan, jadi tidak perlu mengembalikan stok secara manual.
+              break;
           }
       }
       
