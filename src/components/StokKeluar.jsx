@@ -1,15 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { ref, onValue, get, runTransaction, push, serverTimestamp } from 'firebase/database';
-import { db } from '../firebaseConfig';
+import { collection, onSnapshot, getDoc, doc, runTransaction, addDoc, serverTimestamp, getDocs } from 'firebase/firestore';
+import { firestoreDb } from '../firebaseConfig';
 import CameraBarcodeScanner from './CameraBarcodeScanner';
 import toast from 'react-hot-toast';
 
 function StokKeluar({ userProfile }) {
   const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [storeName, setStoreName] = useState('');
+  const [storeId, setStoreId] = useState(''); // Ganti storeName jadi storeId
   const [driverName, setDriverName] = useState('');
   const [licensePlate, setLicensePlate] = useState('');
-  const [availableItems, setAvailableItems] = useState([]);
+
+  const [tokoList, setTokoList] = useState([]);
+  const [masterItems, setMasterItems] = useState({});
+  const [stockData, setStockData] = useState({});
+
+  const [tokoSearchTerm, setTokoSearchTerm] = useState('');
+  const [isTokoSelected, setIsTokoSelected] = useState(false);
+  
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [itemStock, setItemStock] = useState(0);
@@ -22,22 +29,41 @@ function StokKeluar({ userProfile }) {
 
   useEffect(() => {
     if (!userProfile.depotId) return;
-    const masterItemsRef = ref(db, 'master_items');
-    get(masterItemsRef).then((masterSnapshot) => {
-      const masterItems = masterSnapshot.val() || {};
-      const stockRef = ref(db, `depots/${userProfile.depotId}/stock`);
-      onValue(stockRef, (stockSnapshot) => {
-        const stockData = stockSnapshot.val() || {};
-        const available = Object.keys(stockData)
-          .filter(itemId => (stockData[itemId].totalStockInPcs || 0) > 0)
-          .map(itemId => ({ id: itemId, ...masterItems[itemId], totalStockInPcs: stockData[itemId].totalStockInPcs }));
-        setAvailableItems(available);
-      });
+
+    // Ambil data Toko & Master Barang dari Firestore
+    const unsubToko = onSnapshot(collection(firestoreDb, 'master_toko'), (snap) => {
+        setTokoList(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
+    getDocs(collection(firestoreDb, 'master_items')).then(snap => {
+        const items = snap.docs.reduce((acc, doc) => {
+            acc[doc.id] = { id: doc.id, ...doc.data() };
+            return acc;
+        }, {});
+        setMasterItems(items);
+    });
+
+    // Ambil data Stok dari Firestore
+    const unsubStock = onSnapshot(collection(firestoreDb, `depots/${userProfile.depotId}/stock`), (snap) => {
+        const stocks = snap.docs.reduce((acc, doc) => {
+            acc[doc.id] = doc.data().totalStockInPcs || 0;
+            return acc;
+        }, {});
+        setStockData(stocks);
+    });
+
+    return () => {
+        unsubToko();
+        unsubStock();
+    };
   }, [userProfile.depotId]);
 
   const handleBarcodeDetected = (scannedBarcode) => {
+    const availableItems = Object.keys(stockData)
+        .filter(id => stockData[id] > 0)
+        .map(id => masterItems[id])
+        .filter(Boolean); // Hapus item yg mungkin belum termuat di masterItems
     const foundItem = availableItems.find(item => item.barcodePcs === scannedBarcode || item.barcodeDos === scannedBarcode);
+    
     if (foundItem) {
       handleSelectItem(foundItem);
     } else {
@@ -46,12 +72,16 @@ function StokKeluar({ userProfile }) {
     setShowScanner(false);
   };
 
-  const handleSelectItem = async (item) => {
+  const handleSelectItem = (item) => {
     setSelectedItem(item);
     setSearchTerm(item.name);
-    const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${item.id}/totalStockInPcs`);
-    const snapshot = await get(stockRef);
-    setItemStock(snapshot.exists() ? snapshot.val() : 0);
+    setItemStock(stockData[item.id] || 0);
+  };
+  
+  const handleSelectToko = (toko) => {
+      setStoreId(toko.id);
+      setTokoSearchTerm(toko.namaToko);
+      setIsTokoSelected(true);
   };
 
   const handleAddItemToList = (isBonus = false) => {
@@ -67,11 +97,8 @@ function StokKeluar({ userProfile }) {
         return;
     }
     const newItem = {
-      id: selectedItem.id,
-      name: selectedItem.name,
-      quantityInPcs: totalPcs,
-      displayQty: `${dosQty}.${packQty}.${pcsQty}`,
-      isBonus: isBonus
+      id: selectedItem.id, name: selectedItem.name, quantityInPcs: totalPcs,
+      displayQty: `${dosQty}.${packQty}.${pcsQty}`, isBonus: isBonus
     };
     setTransactionItems([...transactionItems, newItem]);
     setSelectedItem(null); setSearchTerm(''); setDosQty(0); setPackQty(0); setPcsQty(0);
@@ -81,83 +108,74 @@ function StokKeluar({ userProfile }) {
     setTransactionItems(transactionItems.filter((_, index) => index !== indexToRemove));
   };
   
-  // --- LOGIKA UTAMA FEFO UNTUK STOK KELUAR MANUAL ---
   const handleSaveTransaction = async () => {
-    if (!invoiceNumber || !storeName || transactionItems.length === 0) {
-      toast.error("No. Faktur, Nama Toko, dan minimal 1 barang wajib diisi.");
-      return;
+    if (!invoiceNumber || !storeId || transactionItems.length === 0) {
+      return toast.error("No. Faktur, Nama Toko, dan minimal 1 barang wajib diisi.");
     }
     setIsSubmitting(true);
     toast.loading('Memproses transaksi...', { id: 'stok-keluar' });
 
     try {
       const allDeductions = [];
+      const selectedToko = tokoList.find(t => t.id === storeId);
 
       for (const transItem of transactionItems) {
-        const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${transItem.id}`);
+        const stockDocRef = doc(firestoreDb, `depots/${userProfile.depotId}/stock/${transItem.id}`);
         
-        await runTransaction(stockRef, (currentStock) => {
-          if (!currentStock || !currentStock.batches || currentStock.totalStockInPcs < transItem.quantityInPcs) {
-            throw new Error(`Stok untuk ${transItem.name} tidak mencukupi.`);
-          }
+        await runTransaction(firestoreDb, async (transaction) => {
+            const stockDoc = await transaction.get(stockDocRef);
+            if (!stockDoc.exists() || !stockDoc.data().batches || stockDoc.data().totalStockInPcs < transItem.quantityInPcs) {
+                throw new Error(`Stok untuk ${transItem.name} tidak mencukupi.`);
+            }
 
-          const sortedBatches = Object.keys(currentStock.batches)
-            .map(key => ({ batchId: key, ...currentStock.batches[key] }))
-            .sort((a, b) => new Date(a.expireDate) - new Date(b.expireDate));
+            let currentStockData = stockDoc.data();
+            const sortedBatches = Object.keys(currentStockData.batches)
+                .map(key => ({ batchId: key, ...currentStockData.batches[key] }))
+                .sort((a, b) => new Date(a.expireDate) - new Date(b.expireDate));
           
-          let quantityToDeduct = transItem.quantityInPcs;
-          let deductionsForThisItem = [];
+            let quantityToDeduct = transItem.quantityInPcs;
+            let deductionsForThisItem = [];
 
-          for (const batch of sortedBatches) {
-            if (quantityToDeduct <= 0) break;
-            const amountToTake = Math.min(quantityToDeduct, batch.quantity);
-            
-            batch.quantity -= amountToTake;
-            quantityToDeduct -= amountToTake;
-            
-            deductionsForThisItem.push({
-                batchId: batch.batchId,
-                deductedQty: amountToTake,
-                expireDate: batch.expireDate
-            });
-          }
+            for (const batch of sortedBatches) {
+                if (quantityToDeduct <= 0) break;
+                const amountToTake = Math.min(quantityToDeduct, batch.quantity);
+                
+                const batchInDb = currentStockData.batches[batch.batchId];
+                if (batchInDb) {
+                    batchInDb.quantity -= amountToTake;
+                    if (batchInDb.quantity <= 0) delete currentStockData.batches[batch.batchId];
+                }
+                quantityToDeduct -= amountToTake;
+                
+                deductionsForThisItem.push({
+                    batchId: batch.batchId, deductedQty: amountToTake, expireDate: batch.expireDate
+                });
+            }
 
-          if (quantityToDeduct > 0) {
-             throw new Error(`Terjadi masalah saat kalkulasi stok untuk ${transItem.name}.`);
-          }
+            if (quantityToDeduct > 0) {
+                throw new Error(`Kalkulasi stok FEFO gagal untuk ${transItem.name}.`);
+            }
           
-          // Update total stok
-          currentStock.totalStockInPcs -= transItem.quantityInPcs;
-
-          // Hapus batch yang kosong
-          sortedBatches.forEach(batch => {
-              if (batch.quantity <= 0) {
-                  delete currentStock.batches[batch.batchId];
-              } else {
-                  currentStock.batches[batch.batchId].quantity = batch.quantity;
-              }
-          });
-          
-          allDeductions.push({itemId: transItem.id, name: transItem.name, deductions: deductionsForThisItem});
-          return currentStock;
+            currentStockData.totalStockInPcs -= transItem.quantityInPcs;
+            transaction.set(stockDocRef, currentStockData);
+            allDeductions.push({itemId: transItem.id, name: transItem.name, deductions: deductionsForThisItem});
         });
       }
 
-      // Buat log transaksi setelah semua berhasil
-      const transactionsRef = ref(db, `depots/${userProfile.depotId}/transactions`);
-      await push(transactionsRef, {
+      const transactionsRef = collection(firestoreDb, `depots/${userProfile.depotId}/transactions`);
+      await addDoc(transactionsRef, {
         type: 'Stok Keluar (Manual)', 
-        invoiceNumber, storeName, driverName, licensePlate, 
+        invoiceNumber, storeId, storeName: selectedToko.namaToko, driverName, licensePlate, 
         items: transactionItems,
-        deductionDetails: allDeductions, // Catat detail pengambilan FEFO
+        deductionDetails: allDeductions,
         user: userProfile.fullName, 
         timestamp: serverTimestamp()
       });
 
       toast.dismiss('stok-keluar');
       toast.success("Transaksi stok keluar berhasil disimpan!");
-      setInvoiceNumber(''); setStoreName(''); setDriverName(''); setLicensePlate('');
-      setTransactionItems([]);
+      setInvoiceNumber(''); setStoreId(''); setDriverName(''); setLicensePlate('');
+      setTransactionItems([]); setTokoSearchTerm(''); setIsTokoSelected(false);
     } catch (err) {
       toast.dismiss('stok-keluar');
       toast.error(`Gagal menyimpan: ${err.message}`);
@@ -167,8 +185,16 @@ function StokKeluar({ userProfile }) {
     }
   };
 
+  const availableItemsForSearch = Object.keys(stockData)
+    .filter(id => stockData[id] > 0 && masterItems[id])
+    .map(id => masterItems[id]);
+
   const filteredItems = searchTerm.length > 0 
-    ? availableItems.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    ? availableItemsForSearch.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    : [];
+
+  const filteredToko = tokoSearchTerm.length > 0
+    ? tokoList.filter(toko => toko.namaToko.toLowerCase().includes(tokoSearchTerm.toLowerCase()))
     : [];
 
   return (
@@ -183,9 +209,16 @@ function StokKeluar({ userProfile }) {
                 <label className="label"><span className="label-text font-bold">No. Faktur</span></label>
                 <input type="text" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} className="input input-bordered" />
               </div>
-              <div className="form-control">
+              <div className="form-control dropdown">
                 <label className="label"><span className="label-text font-bold">Nama Toko Tujuan</span></label>
-                <input type="text" value={storeName} onChange={(e) => setStoreName(e.target.value)} className="input input-bordered" />
+                <input type="text" value={tokoSearchTerm} onChange={(e) => { setTokoSearchTerm(e.target.value); setStoreId(''); setIsTokoSelected(false); }} placeholder="Ketik nama toko..." className="input input-bordered w-full" />
+                {filteredToko.length > 0 && !isTokoSelected && (
+                  <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">
+                    {filteredToko.slice(0, 5).map(toko => (
+                      <li key={toko.id}><a onClick={() => handleSelectToko(toko)}>{toko.namaToko}</a></li>
+                    ))}
+                  </ul>
+                )}
               </div>
               <div className="form-control">
                 <label className="label"><span className="label-text">Nama Sopir</span></label>
@@ -235,10 +268,7 @@ function StokKeluar({ userProfile }) {
                 <tbody>
                   {transactionItems.map((item, index) => (
                     <tr key={index}>
-                      <td>
-                        {item.name}
-                        {item.isBonus && <span className="badge badge-info badge-sm ml-2">Bonus</span>}
-                      </td>
+                      <td>{item.name} {item.isBonus && <span className="badge badge-info badge-sm ml-2">Bonus</span>}</td>
                       <td>{item.displayQty}</td>
                       <td><button onClick={() => handleRemoveFromList(index)} className="btn btn-xs btn-error">Hapus</button></td>
                     </tr>
