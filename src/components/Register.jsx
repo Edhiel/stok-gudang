@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { ref, set } from 'firebase/database';
-import { auth, db } from '../firebaseConfig';
+// --- 1. Perubahan Import ---
+import { doc, setDoc } from "firebase/firestore"; 
+import { auth, firestoreDb } from '../firebaseConfig'; // <-- Gunakan firestoreDb
 
 // Komponen Ikon Mata
 const EyeIcon = ({ onClick }) => (
@@ -42,7 +43,9 @@ function Register({ setPage }) {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      await set(ref(db, 'users/' + user.uid), {
+      // --- 2. Perubahan Logika Penyimpanan ---
+      // Data pengguna sekarang disimpan ke Firestore
+      await setDoc(doc(firestoreDb, "users", user.uid), {
         fullName: fullName,
         email: email,
         role: 'Menunggu Persetujuan',
