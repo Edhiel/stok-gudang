@@ -47,7 +47,8 @@ function App() {
         getDoc(userDocRef).then((docSnap) => {
           if (docSnap.exists()) {
             setUserProfile({ uid: user.uid, ...docSnap.data() });
-          } else {
+          } 
+          else {
             // Jika data user tidak ada di firestore (misal user lama), logout paksa
             console.error("No such user document in Firestore!");
             signOut(auth);
@@ -95,6 +96,10 @@ function App() {
     const canAccessMasterData = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(userProfile.role);
     const canViewLaporan = ['Super Admin', 'Admin Pusat', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(userProfile.role);
     const canProcessOrder = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(userProfile.role);
+    
+    // --- VARIABEL BARU UNTUK SOPIR & HELPER ---
+    const isDriverOrHelper = ['Sopir', 'Helper Depo'].includes(userProfile.role);
+
 
     switch (mainPage) {
       case 'buat-order':
@@ -109,14 +114,16 @@ function App() {
       case 'stok-keluar':
         if (canDoGudangTransaction) return <StokKeluar userProfile={userProfile} />;
         break;
+      // --- UBAH CASE INI ---
       case 'manajemen-retur':
-        if (canDoGudangTransaction) return <ManajemenRetur userProfile={userProfile} />;
+        if (canDoGudangTransaction || isDriverOrHelper) return <ManajemenRetur userProfile={userProfile} />;
         break;
       case 'stock-opname':
         if (canDoGudangTransaction) return <StockOpname userProfile={userProfile} />;
         break;
+      // --- UBAH CASE INI ---
       case 'pengeluaran-barang':
-        if (canDoGudangTransaction) return <ProsesPengeluaranGudang userProfile={userProfile} />;
+        if (canDoGudangTransaction || isDriverOrHelper) return <ProsesPengeluaranGudang userProfile={userProfile} />;
         break;
       case 'transfer-stok':
         if (canAccessMasterData || isSuperAdmin) return <TransferStok userProfile={userProfile} />;
