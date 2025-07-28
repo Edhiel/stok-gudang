@@ -1,24 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { ref, onValue, update, push, serverTimestamp, runTransaction } from 'firebase/database';
-import { db } from '../firebaseConfig';
+import { collection, query, where, onSnapshot, doc, updateDoc, runTransaction, addDoc, serverTimestamp } from 'firebase/firestore';
+import { firestoreDb } from '../firebaseConfig';
 import toast from 'react-hot-toast';
 
 function KelolaFakturTertunda({ userProfile }) {
   const [pendingInvoices, setPendingInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [processingId, setProcessingId] = useState(null); // State untuk melacak item yang sedang diproses
+  const [processingId, setProcessingId] = useState(null);
 
   useEffect(() => {
     if (!userProfile.depotId) return;
 
-    const pendingRef = ref(db, `depots/${userProfile.depotId}/pendingInvoices`);
-    const unsubscribe = onValue(pendingRef, (snapshot) => {
-      const data = snapshot.val() || {};
-      const loadedInvoices = Object.keys(data)
-        .map(key => ({ id: key, ...data[key] }))
-        .filter(inv => inv.status === 'Menunggu Faktur');
-
-      setPendingInvoices(loadedInvoices.sort((a,b) => b.createdAt - a.createdAt));
+    const pendingRef = collection(firestoreDb, `depots/${userProfile.depotId}/pendingInvoices`);
+    const q = query(pendingRef, where('status', '==', 'Menunggu Faktur'));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const loadedInvoices = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a,b) => b.createdAt.toMillis() - a.createdAt.toMillis());
+      setPendingInvoices(loadedInvoices);
       setLoading(false);
     });
 
@@ -34,52 +33,61 @@ function KelolaFakturTertunda({ userProfile }) {
     toast.loading('Memproses dan memotong stok...', { id: 'complete-invoice' });
 
     try {
-      // 1. Potong stok menggunakan logika FEFO untuk setiap item
-      for (const item of invoice.items) {
-        const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${item.id}`);
-        await runTransaction(stockRef, (currentStock) => {
-          if (!currentStock || !currentStock.batches || currentStock.totalStockInPcs < item.quantityInPcs) {
-            throw new Error(`Stok untuk ${item.name} tidak mencukupi.`);
-          }
+        await runTransaction(firestoreDb, async (transaction) => {
+            // 1. Potong stok menggunakan logika FEFO untuk setiap item
+            for (const item of invoice.items) {
+                const stockDocRef = doc(firestoreDb, `depots/${userProfile.depotId}/stock/${item.id}`);
+                const stockDoc = await transaction.get(stockDocRef);
 
-          const sortedBatches = Object.keys(currentStock.batches)
-            .map(key => ({ batchId: key, ...currentStock.batches[key] }))
-            .sort((a, b) => new Date(a.expireDate) - new Date(b.expireDate));
-          
-          let quantityToDeduct = item.quantityInPcs;
+                if (!stockDoc.exists() || !stockDoc.data().batches || stockDoc.data().totalStockInPcs < item.quantityInPcs) {
+                    throw new Error(`Stok untuk ${item.name} tidak mencukupi.`);
+                }
 
-          for (const batch of sortedBatches) {
-            if (quantityToDeduct <= 0) break;
-            const amountToTake = Math.min(quantityToDeduct, batch.quantity);
-            
-            batch.quantity -= amountToTake;
-            quantityToDeduct -= amountToTake;
-          }
+                let currentStockData = stockDoc.data();
+                const sortedBatches = Object.keys(currentStockData.batches)
+                    .map(key => ({ batchId: key, ...currentStockData.batches[key] }))
+                    .sort((a, b) => new Date(a.expireDate) - new Date(b.expireDate));
+                
+                let quantityToDeduct = item.quantityInPcs;
 
-          if (quantityToDeduct > 0) {
-             throw new Error(`Terjadi masalah kalkulasi stok FEFO untuk ${item.name}.`);
-          }
-          
-          currentStock.totalStockInPcs -= item.quantityInPcs;
+                for (const batch of sortedBatches) {
+                    if (quantityToDeduct <= 0) break;
+                    const amountToTake = Math.min(quantityToDeduct, batch.quantity);
+                    
+                    const batchInDb = currentStockData.batches[batch.batchId];
+                    if (batchInDb) {
+                        batchInDb.quantity -= amountToTake;
+                        if (batchInDb.quantity <= 0) {
+                            delete currentStockData.batches[batch.batchId];
+                        }
+                    }
+                    quantityToDeduct -= amountToTake;
+                }
 
-          sortedBatches.forEach(batch => {
-              if (batch.quantity <= 0) {
-                  delete currentStock.batches[batch.batchId];
-              } else {
-                  currentStock.batches[batch.batchId].quantity = batch.quantity;
-              }
-          });
-          
-          return currentStock;
+                if (quantityToDeduct > 0) {
+                    throw new Error(`Terjadi masalah kalkulasi stok FEFO untuk ${item.name}.`);
+                }
+                
+                currentStockData.totalStockInPcs -= item.quantityInPcs;
+                transaction.set(stockDocRef, currentStockData); // set menimpa seluruh dokumen dengan data baru
+            }
+
+            // 2. Update status faktur tertunda menjadi "Selesai"
+            const pendingDocRef = doc(firestoreDb, `depots/${userProfile.depotId}/pendingInvoices/${invoice.id}`);
+            transaction.update(pendingDocRef, {
+                status: 'Selesai',
+                processedBy: userProfile.fullName,
+                processedAt: serverTimestamp()
+            });
         });
-      }
 
-      // 2. Buat log transaksi Stok Keluar
-      const transactionsRef = ref(db, `depots/${userProfile.depotId}/transactions`);
-      await push(transactionsRef, {
+      // 3. Buat log transaksi Stok Keluar (dilakukan setelah transaksi stok berhasil)
+      const transactionsRef = collection(firestoreDb, `depots/${userProfile.depotId}/transactions`);
+      await addDoc(transactionsRef, {
         type: 'Stok Keluar',
-        invoiceNumber: invoice.invoiceNumber || `TT-${invoice.id.slice(-4)}`, // Generate No jika kosong
+        invoiceNumber: invoice.invoiceNumber || `TT-${invoice.id.slice(-4)}`,
         storeName: invoice.storeName,
+        storeId: invoice.storeId,
         items: invoice.items,
         user: userProfile.fullName,
         timestamp: serverTimestamp(),
@@ -87,14 +95,6 @@ function KelolaFakturTertunda({ userProfile }) {
         driverName: invoice.driverName,
         licensePlate: invoice.licensePlate,
         refDoc: invoice.id
-      });
-      
-      // 3. Update status faktur tertunda menjadi "Selesai"
-      const pendingRef = ref(db, `depots/${userProfile.depotId}/pendingInvoices/${invoice.id}`);
-      await update(pendingRef, {
-        status: 'Selesai',
-        processedBy: userProfile.fullName,
-        processedAt: serverTimestamp()
       });
       
       toast.dismiss('complete-invoice');
@@ -129,7 +129,7 @@ function KelolaFakturTertunda({ userProfile }) {
             ) : (
               pendingInvoices.map(invoice => (
                 <tr key={invoice.id}>
-                  <td>{new Date(invoice.createdAt).toLocaleString('id-ID')}</td>
+                  <td>{invoice.createdAt.toDate().toLocaleString('id-ID')}</td>
                   <td>{invoice.salesName}</td>
                   <td>{invoice.storeName}</td>
                   <td>{invoice.items.length} jenis</td>
