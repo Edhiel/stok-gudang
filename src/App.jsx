@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { ref, get } from 'firebase/database';
-import { auth, db } from './firebaseConfig';
+// --- 1. IMPORT BARU DARI FIRESTORE ---
+import { doc, getDoc } from "firebase/firestore";
+// --- 2. UBAH IMPORT DARI FIREBASECONFIG ---
+import { auth, firestoreDb } from './firebaseConfig';
 import { Toaster } from 'react-hot-toast';
 import Login from './components/Login';
 import Register from './components/Register';
@@ -19,7 +21,7 @@ import FakturTertunda from './components/FakturTertunda';
 import KelolaFakturTertunda from './components/KelolaFakturTertunda';
 import ManajemenRetur from './components/ManajemenRetur';
 import Laporan from './components/Laporan';
-import LaporanKedaluwarsa from './components/LaporanKedaluwarsa'; // <-- 1. IMPORT BARU
+import LaporanKedaluwarsa from './components/LaporanKedaluwarsa';
 import BackupRestore from './components/BackupRestore';
 import BuatOrder from './components/BuatOrder';
 import ProsesOrder from './components/ProsesOrder';
@@ -40,15 +42,18 @@ function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
-        const userRef = ref(db, 'users/' + user.uid);
-        get(userRef).then((snapshot) => {
-          if (snapshot.exists()) {
-            setUserProfile({ uid: user.uid, ...snapshot.val() });
+        // --- 3. LOGIKA BARU UNTUK MENGAMBIL DATA DARI FIRESTORE ---
+        const userDocRef = doc(firestoreDb, "users", user.uid);
+        getDoc(userDocRef).then((docSnap) => {
+          if (docSnap.exists()) {
+            setUserProfile({ uid: user.uid, ...docSnap.data() });
           } else {
+            // Jika data user tidak ada di firestore (misal user lama), logout paksa
+            console.error("No such user document in Firestore!");
             signOut(auth);
           }
         }).catch((error) => {
-          console.error("Gagal mengambil data user:", error);
+          console.error("Gagal mengambil data user dari Firestore:", error);
           signOut(auth);
         }).finally(() => {
           setLoading(false);
@@ -136,12 +141,9 @@ function App() {
       case 'laporan':
         if (canViewLaporan) return <Laporan userProfile={userProfile} />;
         break;
-      
-      // --- 2. CASE BARU UNTUK MENAMPILKAN LAPORAN ED ---
       case 'laporan-kedaluwarsa':
         if (canViewLaporan) return <LaporanKedaluwarsa userProfile={userProfile} />;
         break;
-
       case 'kantor-pusat':
         if (isSuperAdmin || isAdminPusat) return <KantorPusat userProfile={userProfile} />;
         break;
