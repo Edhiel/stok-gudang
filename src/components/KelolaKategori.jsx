@@ -1,50 +1,53 @@
 import React, { useState, useEffect } from 'react';
-import { ref, onValue, push, remove, update } from 'firebase/database';
-import { db } from '../firebaseConfig';
+// --- 1. IMPORT BARU DARI FIRESTORE ---
+import { collection, onSnapshot, addDoc, doc, deleteDoc, updateDoc } from 'firebase/firestore';
+// --- 2. UBAH IMPORT DARI FIREBASECONFIG ---
+import { firestoreDb } from '../firebaseConfig';
+import toast from 'react-hot-toast';
 
 function KelolaKategori() {
   const [categories, setCategories] = useState([]);
   const [categoryName, setCategoryName] = useState('');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState(null);
   const [editedCategoryName, setEditedCategoryName] = useState('');
 
+  // --- 3. LOGIKA BARU MENGAMBIL DATA DARI FIRESTORE ---
   useEffect(() => {
-    const categoriesRef = ref(db, 'categories/');
-    onValue(categoriesRef, (snapshot) => {
-      const data = snapshot.val();
-      const loadedCategories = data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : [];
+    const categoriesCollectionRef = collection(firestoreDb, 'categories');
+    const unsubscribe = onSnapshot(categoriesCollectionRef, (snapshot) => {
+      const loadedCategories = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setCategories(loadedCategories);
       setLoading(false);
     });
+    return () => unsubscribe();
   }, []);
 
+  // --- 4. LOGIKA BARU MENAMBAH KATEGORI KE FIRESTORE ---
   const handleAddCategory = async (e) => {
     e.preventDefault();
-    if (!categoryName) { setError("Nama kategori tidak boleh kosong."); return; }
-    setError(''); setSuccess('');
-    
+    if (!categoryName) { 
+        return toast.error("Nama kategori tidak boleh kosong.");
+    }
     try {
-      await push(ref(db, 'categories'), { name: categoryName });
-      setSuccess(`Kategori "${categoryName}" berhasil ditambahkan.`);
+      await addDoc(collection(firestoreDb, 'categories'), { name: categoryName });
+      toast.success(`Kategori "${categoryName}" berhasil ditambahkan.`);
       setCategoryName('');
     } catch (err) {
-      setError("Gagal menambahkan kategori.");
+      toast.error("Gagal menambahkan kategori.");
       console.error(err);
     }
   };
   
+  // --- 5. LOGIKA BARU MENGHAPUS KATEGORI DARI FIRESTORE ---
   const handleDeleteCategory = async (categoryId, categoryName) => {
     if (window.confirm(`Apakah Anda yakin ingin menghapus kategori "${categoryName}"?`)) {
         try {
-            await remove(ref(db, `categories/${categoryId}`));
-            alert("Kategori berhasil dihapus.");
+            await deleteDoc(doc(firestoreDb, 'categories', categoryId));
+            toast.success("Kategori berhasil dihapus.");
         } catch (err) {
-            alert("Gagal menghapus kategori.");
+            toast.error("Gagal menghapus kategori.");
         }
     }
   };
@@ -55,31 +58,29 @@ function KelolaKategori() {
     setIsEditModalOpen(true);
   };
 
+  // --- 6. LOGIKA BARU UPDATE KATEGORI KE FIRESTORE ---
   const handleUpdateCategory = async () => {
     if (!editedCategoryName) {
-      alert("Nama kategori tidak boleh kosong.");
-      return;
+      return toast.error("Nama kategori tidak boleh kosong.");
     }
-    const categoryRef = ref(db, `categories/${editingCategory.id}`);
+    const categoryDocRef = doc(firestoreDb, 'categories', editingCategory.id);
     try {
-      await update(categoryRef, { name: editedCategoryName });
-      alert("Kategori berhasil diperbarui.");
+      await updateDoc(categoryDocRef, { name: editedCategoryName });
+      toast.success("Kategori berhasil diperbarui.");
       setIsEditModalOpen(false);
       setEditingCategory(null);
     } catch (error) {
-      alert("Gagal memperbarui kategori.");
+      toast.error("Gagal memperbarui kategori.");
       console.error(error);
     }
   };
-
+  
   return (
     <>
       <div className="p-8 grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-1">
           <form onSubmit={handleAddCategory} className="card bg-white shadow-lg p-6">
             <h2 className="card-title">Tambah Kategori Baru</h2>
-            {success && <div role="alert" className="alert alert-success text-sm p-2 mt-2"><span>{success}</span></div>}
-            {error && <div role="alert" className="alert alert-error text-sm p-2 mt-2"><span>{error}</span></div>}
             <div className="form-control mt-2">
               <label className="label"><span className="label-text">Nama Kategori</span></label>
               <input type="text" placeholder="Contoh: Kebutuhan Dapur" value={categoryName} onChange={(e) => setCategoryName(e.target.value)} className="input input-bordered" />
@@ -94,7 +95,8 @@ function KelolaKategori() {
             <table className="table w-full">
               <thead className="bg-gray-200"><tr><th>Nama Kategori</th><th>Aksi</th></tr></thead>
               <tbody>
-                {loading ? <tr><td colSpan="2" className="text-center"><span className="loading loading-dots"></span></td></tr> :
+                {loading ?
+                <tr><td colSpan="2" className="text-center"><span className="loading loading-dots"></span></td></tr> :
                 categories.map(cat => (
                   <tr key={cat.id}>
                     <td>{cat.name}</td>
@@ -128,4 +130,5 @@ function KelolaKategori() {
     </>
   );
 }
+
 export default KelolaKategori;
