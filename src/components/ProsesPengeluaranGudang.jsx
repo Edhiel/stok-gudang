@@ -6,12 +6,11 @@ import toast from 'react-hot-toast';
 function ProsesPengeluaranGudang({ userProfile }) {
   const [readyOrders, setReadyOrders] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // State untuk modal proses
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
-  const [stockLocations, setStockLocations] = useState({});
-  const [dispatchPlan, setDispatchPlan] = useState({});
+  
+  // State baru untuk menyimpan rencana pengambilan (picking plan)
+  const [pickingPlan, setPickingPlan] = useState([]);
 
   useEffect(() => {
     if (!userProfile.depotId) return;
@@ -29,61 +28,87 @@ function ProsesPengeluaranGudang({ userProfile }) {
     return () => unsubscribe();
   }, [userProfile.depotId]);
 
-  const openDispatchModal = async (order) => {
-    setSelectedOrder(order);
-    
-    // Ambil data stok terkini untuk semua item dalam order
-    const locationsData = {};
-    for (const item of order.items) {
-      const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${item.id}`);
-      const snapshot = await get(stockRef);
-      if (snapshot.exists()) {
-        locationsData[item.id] = snapshot.val().locations || {};
-      } else {
-        locationsData[item.id] = {};
-      }
-    }
-    setStockLocations(locationsData);
-    setDispatchPlan({}); // Reset rencana dispatch
-    setIsModalOpen(true);
-  };
+  // --- LOGIKA UTAMA FEFO DIMULAI DI SINI ---
+  const generatePickingPlan = async (order) => {
+    const plan = [];
+    let isStockAvailable = true;
 
-  const handleDispatchQtyChange = (itemId, locationId, qty) => {
-    const newQty = Number(qty);
-    setDispatchPlan(prev => ({
-        ...prev,
-        [itemId]: {
-            ...prev[itemId],
-            [locationId]: newQty > 0 ? newQty : undefined
+    for (const item of order.items) {
+        const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${item.id}`);
+        const snapshot = await get(stockRef);
+
+        if (!snapshot.exists() || !snapshot.val().batches) {
+            toast.error(`Stok batch untuk ${item.name} tidak ditemukan!`);
+            isStockAvailable = false;
+            break;
         }
-    }));
+
+        const batches = snapshot.val().batches;
+        const sortedBatches = Object.keys(batches)
+            .map(key => ({ batchId: key, ...batches[key] }))
+            .sort((a, b) => new Date(a.expireDate) - new Date(b.expireDate));
+
+        let quantityToPick = item.quantityInPcs;
+        let pickedFromBatches = [];
+
+        for (const batch of sortedBatches) {
+            if (quantityToPick <= 0) break;
+
+            const pickAmount = Math.min(quantityToPick, batch.quantity);
+            
+            pickedFromBatches.push({
+                ...batch,
+                qtyToPick: pickAmount
+            });
+
+            quantityToPick -= pickAmount;
+        }
+
+        if (quantityToPick > 0) {
+            toast.error(`Stok tidak cukup untuk ${item.name}. Butuh ${item.quantityInPcs}, hanya tersedia ${item.quantityInPcs - quantityToPick}.`);
+            isStockAvailable = false;
+            break;
+        }
+
+        plan.push({
+            itemId: item.id,
+            itemName: item.name,
+            totalToPick: item.quantityInPcs,
+            pickedFromBatches: pickedFromBatches
+        });
+    }
+
+    if (isStockAvailable) {
+        setPickingPlan(plan);
+        setSelectedOrder(order);
+        setIsModalOpen(true);
+    } else {
+        setPickingPlan([]);
+    }
   };
 
   const handleConfirmDispatch = async () => {
-    // Validasi
-    for(const item of selectedOrder.items) {
-        const totalPicked = Object.values(dispatchPlan[item.id] || {}).reduce((sum, qty) => sum + qty, 0);
-        if (totalPicked !== item.quantityInPcs) {
-            return toast.error(`Jumlah pengambilan untuk ${item.name} tidak sesuai! Dibutuhkan: ${item.quantityInPcs}, Diambil: ${totalPicked}`);
-        }
-    }
-
-    if (!window.confirm(`Konfirmasi pengeluaran barang untuk faktur ${selectedOrder.invoiceNumber}?`)) return;
+    if (!window.confirm(`Konfirmasi pengeluaran barang untuk faktur ${selectedOrder.invoiceNumber}? Stok akan dipotong secara permanen.`)) return;
 
     try {
-      // 1. Kurangi stok dari total, alokasi, dan lokasi spesifik
-      for (const itemId in dispatchPlan) {
-        const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${itemId}`);
+      // 1. Kurangi stok dari setiap batch yang ada di picking plan
+      for (const planItem of pickingPlan) {
+        const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${planItem.itemId}`);
+        
         await runTransaction(stockRef, (currentStock) => {
-          if (currentStock) {
-            const picks = dispatchPlan[itemId];
-            let totalPicked = 0;
-            for (const locationId in picks) {
-                const pickedQty = picks[locationId];
-                currentStock.locations[locationId] = (currentStock.locations[locationId] || 0) - pickedQty;
-                totalPicked += pickedQty;
+          if (currentStock && currentStock.batches) {
+            for (const pickedBatch of planItem.pickedFromBatches) {
+              const batchInDb = currentStock.batches[pickedBatch.batchId];
+              if (batchInDb) {
+                batchInDb.quantity -= pickedBatch.qtyToPick;
+                if (batchInDb.quantity <= 0) {
+                  // Hapus batch jika stoknya habis
+                  delete currentStock.batches[pickedBatch.batchId];
+                }
+              }
             }
-            const orderItem = selectedOrder.items.find(i => i.id === itemId);
+            // Kurangi juga stok yang dialokasikan
+            const orderItem = selectedOrder.items.find(i => i.id === planItem.itemId);
             currentStock.allocatedStockInPcs = (currentStock.allocatedStockInPcs || 0) - orderItem.quantityInPcs;
           }
           return currentStock;
@@ -93,9 +118,13 @@ function ProsesPengeluaranGudang({ userProfile }) {
       // 2. Buat log transaksi "Stok Keluar"
       const transactionsRef = ref(db, `depots/${userProfile.depotId}/transactions`);
       await push(transactionsRef, {
-        type: 'Stok Keluar', invoiceNumber: selectedOrder.invoiceNumber,
-        storeName: selectedOrder.storeName, items: selectedOrder.items,
-        user: userProfile.fullName, timestamp: serverTimestamp()
+        type: 'Stok Keluar (FEFO)',
+        invoiceNumber: selectedOrder.invoiceNumber,
+        storeName: selectedOrder.storeName,
+        items: selectedOrder.items,
+        pickingPlan: pickingPlan, // Simpan juga picking plan untuk audit
+        user: userProfile.fullName,
+        timestamp: serverTimestamp()
       });
 
       // 3. Update status order menjadi "Selesai"
@@ -104,6 +133,8 @@ function ProsesPengeluaranGudang({ userProfile }) {
 
       toast.success("Barang berhasil dikeluarkan dan transaksi selesai.");
       setIsModalOpen(false);
+      setPickingPlan([]);
+      setSelectedOrder(null);
 
     } catch (error) {
       toast.error(`Gagal konfirmasi: ${error.message}`);
@@ -119,7 +150,8 @@ function ProsesPengeluaranGudang({ userProfile }) {
             <tr><th>Tgl Order</th><th>No. Faktur</th><th>Nama Toko</th><th>Admin Faktur</th><th className="text-center">Aksi</th></tr>
           </thead>
           <tbody>
-            {loading ? (<tr><td colSpan="5" className="text-center"><span className="loading loading-dots"></span></td></tr>) 
+            {loading 
+            ? (<tr><td colSpan="5" className="text-center"><span className="loading loading-dots"></span></td></tr>) 
             : readyOrders.length === 0 ? (<tr><td colSpan="5" className="text-center">Tidak ada barang yang siap untuk dikeluarkan.</td></tr>)
             : (readyOrders.map(order => (
                 <tr key={order.id} className="hover">
@@ -128,7 +160,7 @@ function ProsesPengeluaranGudang({ userProfile }) {
                   <td>{order.storeName}</td>
                   <td>{order.processedBy}</td>
                   <td className="text-center">
-                    <button onClick={() => openDispatchModal(order)} className="btn btn-sm btn-primary">Proses Pengeluaran</button>
+                    <button onClick={() => generatePickingPlan(order)} className="btn btn-sm btn-primary">Proses Pengeluaran</button>
                   </td>
                 </tr>
               )))}
@@ -138,49 +170,41 @@ function ProsesPengeluaranGudang({ userProfile }) {
       
       {isModalOpen && selectedOrder && (
         <div className="modal modal-open">
-          <div className="modal-box w-11/12 max-w-3xl">
-            <h3 className="font-bold text-lg">Proses Pengeluaran: {selectedOrder.invoiceNumber}</h3>
+          <div className="modal-box w-11/12 max-w-4xl">
+            <h3 className="font-bold text-lg">Rencana Ambil Barang (FEFO): {selectedOrder.invoiceNumber}</h3>
             <p className="py-2 text-sm"><strong>Toko:</strong> {selectedOrder.storeName}</p>
-            <div className="divider my-2">Detail Pengambilan Barang</div>
+            <div className="divider my-2">Ikuti daftar di bawah untuk mengambil barang:</div>
             
-            <div className="space-y-4 max-h-96 overflow-y-auto">
-              {selectedOrder.items.map(item => {
-                const availableLocs = stockLocations[item.id] || {};
-                const totalPicked = Object.values(dispatchPlan[item.id] || {}).reduce((sum, qty) => sum + qty, 0);
-                const remaining = item.quantityInPcs - totalPicked;
-                return (
-                  <div key={item.id} className="card bg-base-200 p-4">
-                    <div className="flex justify-between items-center font-bold">
-                      <span>{item.name}</span>
-                      <span className={`badge ${remaining === 0 ? 'badge-success' : 'badge-error'}`}>
-                        Dibutuhkan: {item.quantityInPcs} Pcs | Diambil: {totalPicked} Pcs
-                      </span>
-                    </div>
-                    <div className="text-xs mt-2">Lokasi Tersedia:</div>
-                    <div className="space-y-2 mt-1">
-                      {Object.keys(availableLocs).length > 0 ? Object.entries(availableLocs).map(([locId, qty]) => (
-                        <div key={locId} className="flex items-center gap-2">
-                          <label className="label flex-1">
-                            <span className="label-text">{locId} <span className="text-gray-500">(Stok: {qty})</span></span>
-                          </label>
-                          <input 
-                            type="number" 
-                            placeholder="Qty"
-                            className="input input-sm input-bordered w-24"
-                            max={qty}
-                            min={0}
-                            onChange={(e) => handleDispatchQtyChange(item.id, locId, e.target.value)}
-                          />
-                        </div>
-                      )) : <div className="text-xs text-error">Stok untuk item ini tidak ditemukan di lokasi manapun.</div>}
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto p-1">
+              {pickingPlan.map(planItem => (
+                  <div key={planItem.itemId} className="card card-compact bg-base-200 p-4">
+                    <h4 className="font-bold text-base mb-2">{planItem.itemName} (Total: {planItem.totalToPick} Pcs)</h4>
+                    <div className="overflow-x-auto">
+                        <table className="table table-xs w-full">
+                            <thead>
+                                <tr>
+                                    <th>Lokasi</th>
+                                    <th>Tgl. Kedaluwarsa</th>
+                                    <th>Jumlah Ambil</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {planItem.pickedFromBatches.map(batch => (
+                                    <tr key={batch.batchId}>
+                                        <td className="font-semibold">{batch.locationId}</td>
+                                        <td className="text-red-600 font-semibold">{new Date(batch.expireDate).toLocaleDateString('id-ID')}</td>
+                                        <td className="font-semibold">{batch.qtyToPick} Pcs</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
                   </div>
-                );
-              })}
+              ))}
             </div>
 
             <div className="modal-action mt-6">
-                <button onClick={() => setIsModalOpen(false)} className="btn">Batal</button>
+                <button onClick={() => setIsModalOpen(false)} className="btn btn-ghost">Batal</button>
                 <button onClick={handleConfirmDispatch} className="btn btn-primary">Konfirmasi & Selesaikan Pengeluaran</button>
             </div>
           </div>
