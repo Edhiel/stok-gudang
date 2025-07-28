@@ -18,6 +18,7 @@ function StokKeluar({ userProfile }) {
   const [pcsQty, setPcsQty] = useState(0);
   const [transactionItems, setTransactionItems] = useState([]);
   const [showScanner, setShowScanner] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (!userProfile.depotId) return;
@@ -52,10 +53,14 @@ function StokKeluar({ userProfile }) {
     const snapshot = await get(stockRef);
     setItemStock(snapshot.exists() ? snapshot.val() : 0);
   };
-  
+
   const handleAddItemToList = (isBonus = false) => {
     if (!selectedItem) { toast.error("Pilih barang dulu."); return; }
-    const totalPcs = (Number(dosQty) * (selectedItem.conversions.Dos?.inPcs || 1)) + (Number(packQty) * (selectedItem.conversions.Pack?.inPcs || 1)) + (Number(pcsQty));
+    
+    const dosInPcs = selectedItem.conversions?.Dos?.inPcs || 1;
+    const packInPcs = selectedItem.conversions?.Pack?.inPcs || 1;
+    const totalPcs = (Number(dosQty) * dosInPcs) + (Number(packQty) * packInPcs) + (Number(pcsQty));
+
     if (totalPcs <= 0) { toast.error("Masukkan jumlah yang valid."); return; }
     if (totalPcs > itemStock) {
         toast.error(`Stok tidak cukup! Sisa stok hanya ${itemStock} Pcs.`);
@@ -76,34 +81,89 @@ function StokKeluar({ userProfile }) {
     setTransactionItems(transactionItems.filter((_, index) => index !== indexToRemove));
   };
   
+  // --- LOGIKA UTAMA FEFO UNTUK STOK KELUAR MANUAL ---
   const handleSaveTransaction = async () => {
     if (!invoiceNumber || !storeName || transactionItems.length === 0) {
       toast.error("No. Faktur, Nama Toko, dan minimal 1 barang wajib diisi.");
       return;
     }
+    setIsSubmitting(true);
+    toast.loading('Memproses transaksi...', { id: 'stok-keluar' });
+
     try {
+      const allDeductions = [];
+
       for (const transItem of transactionItems) {
         const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${transItem.id}`);
+        
         await runTransaction(stockRef, (currentStock) => {
-          if (currentStock) {
-            const currentTotal = currentStock.totalStockInPcs || 0;
-            if (currentTotal < transItem.quantityInPcs) { throw new Error(`Stok untuk ${transItem.name} tidak cukup.`); }
-            currentStock.totalStockInPcs = currentTotal - transItem.quantityInPcs;
+          if (!currentStock || !currentStock.batches || currentStock.totalStockInPcs < transItem.quantityInPcs) {
+            throw new Error(`Stok untuk ${transItem.name} tidak mencukupi.`);
           }
+
+          const sortedBatches = Object.keys(currentStock.batches)
+            .map(key => ({ batchId: key, ...currentStock.batches[key] }))
+            .sort((a, b) => new Date(a.expireDate) - new Date(b.expireDate));
+          
+          let quantityToDeduct = transItem.quantityInPcs;
+          let deductionsForThisItem = [];
+
+          for (const batch of sortedBatches) {
+            if (quantityToDeduct <= 0) break;
+            const amountToTake = Math.min(quantityToDeduct, batch.quantity);
+            
+            batch.quantity -= amountToTake;
+            quantityToDeduct -= amountToTake;
+            
+            deductionsForThisItem.push({
+                batchId: batch.batchId,
+                deductedQty: amountToTake,
+                expireDate: batch.expireDate
+            });
+          }
+
+          if (quantityToDeduct > 0) {
+             throw new Error(`Terjadi masalah saat kalkulasi stok untuk ${transItem.name}.`);
+          }
+          
+          // Update total stok
+          currentStock.totalStockInPcs -= transItem.quantityInPcs;
+
+          // Hapus batch yang kosong
+          sortedBatches.forEach(batch => {
+              if (batch.quantity <= 0) {
+                  delete currentStock.batches[batch.batchId];
+              } else {
+                  currentStock.batches[batch.batchId].quantity = batch.quantity;
+              }
+          });
+          
+          allDeductions.push({itemId: transItem.id, name: transItem.name, deductions: deductionsForThisItem});
           return currentStock;
         });
       }
+
+      // Buat log transaksi setelah semua berhasil
       const transactionsRef = ref(db, `depots/${userProfile.depotId}/transactions`);
       await push(transactionsRef, {
-        type: 'Stok Keluar', invoiceNumber, storeName, driverName,
-        licensePlate, items: transactionItems, user: userProfile.fullName, timestamp: serverTimestamp()
+        type: 'Stok Keluar (Manual)', 
+        invoiceNumber, storeName, driverName, licensePlate, 
+        items: transactionItems,
+        deductionDetails: allDeductions, // Catat detail pengambilan FEFO
+        user: userProfile.fullName, 
+        timestamp: serverTimestamp()
       });
+
+      toast.dismiss('stok-keluar');
       toast.success("Transaksi stok keluar berhasil disimpan!");
       setInvoiceNumber(''); setStoreName(''); setDriverName(''); setLicensePlate('');
       setTransactionItems([]);
     } catch (err) {
+      toast.dismiss('stok-keluar');
       toast.error(`Gagal menyimpan: ${err.message}`);
       console.error(err);
+    } finally {
+        setIsSubmitting(false);
     }
   };
 
@@ -187,7 +247,9 @@ function StokKeluar({ userProfile }) {
               </table>
             </div>
             <div className="form-control mt-6">
-              <button type="button" onClick={handleSaveTransaction} className="btn btn-primary btn-lg" disabled={transactionItems.length === 0}>Simpan Seluruh Transaksi</button>
+              <button type="button" onClick={handleSaveTransaction} className="btn btn-primary btn-lg" disabled={isSubmitting || transactionItems.length === 0}>
+                {isSubmitting ? <span className="loading loading-spinner"></span> : 'Simpan Seluruh Transaksi'}
+              </button>
             </div>
           </div>
         </div>
@@ -195,4 +257,5 @@ function StokKeluar({ userProfile }) {
     </>
   );
 }
+
 export default StokKeluar;
