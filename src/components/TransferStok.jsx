@@ -1,4 +1,3 @@
-#### Kode Revisi `TransferStok.jsx`
 import React, { useState, useEffect } from 'react';
 import { getAuth } from 'firebase/auth';
 import { collection, getDocs, onSnapshot, addDoc, doc, runTransaction, updateDoc, query, where, orderBy } from 'firebase/firestore';
