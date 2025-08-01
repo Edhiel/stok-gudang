@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ref, onValue } from 'firebase/database';
-import { db } from '../firebaseConfig';
+import { collection, onSnapshot, getDocs, collectionGroup, query } from 'firebase/firestore';
+import { firestoreDb } from '../firebaseConfig';
 import Papa from 'papaparse';
 
 const formatToDPP = (totalPcs, conversions) => {
@@ -41,7 +41,7 @@ const LaporanTransaksi = ({ transactions, loading, depots }) => (
             : transactions.length === 0 ? (<tr><td colSpan="5" className="text-center">Tidak ada data yang cocok.</td></tr>)
             : (transactions.map(trans => (
                 <tr key={trans.id}>
-                    <td>{new Date(trans.timestamp).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short'})}</td>
+                    <td>{trans.timestamp?.toDate().toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short'})}</td>
                     <td>{depots.find(d => d.id === trans.depotId)?.name || trans.depotId}</td>
                     <td><span className={`badge ${trans.type.includes('Masuk') || trans.type.includes('Baik') ? 'badge-success' : 'badge-error'}`}>{trans.type}</span></td>
                     <td>
@@ -84,57 +84,64 @@ function KantorPusat({ userProfile }) {
   const itemsPerPage = 25;
 
   useEffect(() => {
-    const depotsRef = ref(db, 'depots');
-    onValue(depotsRef, (snapshot) => {
-      const data = snapshot.val() || {};
-      const depotList = Object.keys(data).map(key => ({ id: key, name: data[key].info.name }));
-      setAllDepots(depotList);
-    });
-    const masterItemsRef = ref(db, 'master_items');
-    onValue(masterItemsRef, (snapshot) => {
-      setMasterItems(snapshot.val() || {});
-    });
-  }, []);
+    const fetchInitialData = async () => {
+        setLoading(true);
+        const depotsSnap = await getDocs(collection(firestoreDb, 'depots'));
+        const depotList = depotsSnap.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+        setAllDepots(depotList);
 
-  useEffect(() => {
-    setLoading(true);
-    const depotsRef = ref(db, 'depots');
-    onValue(depotsRef, (snapshot) => {
-      const allDepotData = snapshot.val() || {};
-      const stockSummary = {};
-      const allTransactions = [];
-      Object.keys(allDepotData).forEach(depotId => {
-        const stockItems = allDepotData[depotId].stock || {};
-        const transItems = allDepotData[depotId].transactions || {};
-        Object.keys(stockItems).forEach(itemId => {
-          if (!stockSummary[itemId]) stockSummary[itemId] = { total: 0, damaged: 0 };
-          stockSummary[itemId].total += stockItems[itemId].totalStockInPcs || 0;
-          stockSummary[itemId].damaged += stockItems[itemId].damagedStockInPcs || 0;
+        const masterItemsSnap = await getDocs(collection(firestoreDb, 'master_items'));
+        const masterData = {};
+        masterItemsSnap.forEach(doc => {
+            masterData[doc.id] = doc.data();
         });
-        Object.keys(transItems).forEach(transId => {
-            allTransactions.push({ id: transId, ...transItems[transId], depotId });
+        setMasterItems(masterData);
+
+        const stockQuery = query(collectionGroup(firestoreDb, 'stock'));
+        const transQuery = query(collectionGroup(firestoreDb, 'transactions'));
+        
+        const stockSnapshot = await getDocs(stockQuery);
+        const stockSummary = {};
+        stockSnapshot.forEach(doc => {
+            const itemId = doc.id;
+            const data = doc.data();
+            if (!stockSummary[itemId]) stockSummary[itemId] = { totalStockInPcs: 0, damagedStockInPcs: 0 };
+            stockSummary[itemId].totalStockInPcs += data.totalStockInPcs || 0;
+            stockSummary[itemId].damagedStockInPcs += data.damagedStockInPcs || 0;
         });
-      });
-      const finalStockData = Object.keys(stockSummary).map(itemId => ({
-        id: itemId, ...masterItems[itemId],
-        totalStock: stockSummary[itemId].total,
-        damagedStock: stockSummary[itemId].damaged,
-      })).filter(item => item.name);
-      setOriginalStockData(finalStockData);
-      setOriginalTransactions(allTransactions.sort((a,b) => b.timestamp - a.timestamp));
-      setLoading(false);
-    }, { onlyOnce: true });
-  }, [masterItems]);
+
+        const finalStockData = Object.keys(stockSummary).map(itemId => ({
+            id: itemId, ...masterData[itemId],
+            totalStock: stockSummary[itemId].totalStockInPcs,
+            damagedStock: stockSummary[itemId].damagedStockInPcs,
+        })).filter(item => item.name);
+
+        setOriginalStockData(finalStockData);
+
+        const transSnapshot = await getDocs(transQuery);
+        const allTransactions = transSnapshot.docs.map(doc => {
+            const path = doc.ref.path.split('/');
+            const depotId = path[1];
+            return { id: doc.id, depotId, ...doc.data() };
+        });
+
+        setOriginalTransactions(allTransactions.sort((a,b) => b.timestamp?.toMillis() - a.timestamp?.toMillis()));
+        setLoading(false);
+    };
+
+    fetchInitialData();
+  }, []);
 
   useEffect(() => {
     let newProcessedStock = [...originalStockData];
     if (filterCategory) newProcessedStock = newProcessedStock.filter(item => item.category === filterCategory);
     if (searchTerm) newProcessedStock = newProcessedStock.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()));
     setProcessedStock(newProcessedStock);
+
     let newProcessedTrans = [...originalTransactions];
     if (selectedDepot !== 'semua') newProcessedTrans = newProcessedTrans.filter(t => t.depotId === selectedDepot);
-    if (filterStartDate) { const start = new Date(filterStartDate).setHours(0,0,0,0); newProcessedTrans = newProcessedTrans.filter(t => t.timestamp >= start); }
-    if (filterEndDate) { const end = new Date(filterEndDate).setHours(23,59,59,999); newProcessedTrans = newProcessedTrans.filter(t => t.timestamp <= end); }
+    if (filterStartDate) { const start = new Date(filterStartDate).setHours(0,0,0,0); newProcessedTrans = newProcessedTrans.filter(t => t.timestamp?.toDate() >= start); }
+    if (filterEndDate) { const end = new Date(filterEndDate).setHours(23,59,59,999); newProcessedTrans = newProcessedTrans.filter(t => t.timestamp?.toDate() <= end); }
     setProcessedTransactions(newProcessedTrans);
     setCurrentPage(1);
   }, [selectedDepot, filterCategory, searchTerm, filterStartDate, filterEndDate, originalStockData, originalTransactions]);
@@ -146,6 +153,7 @@ function KantorPusat({ userProfile }) {
     const last = first + itemsPerPage;
     return processedStock.slice(first, last);
   }, [currentPage, processedStock]);
+
   const paginatedTransactions = useMemo(() => {
     const first = (currentPage - 1) * itemsPerPage;
     const last = first + itemsPerPage;
@@ -167,7 +175,7 @@ function KantorPusat({ userProfile }) {
         filename = `laporan_stok_gabungan_${depotName}_${today}.csv`;
     } else if (activeTab === 'transaksi') {
         dataToExport = processedTransactions.map(trans => ({
-            'Tanggal': new Date(trans.timestamp).toLocaleString('id-ID'), 'Depo': allDepots.find(d => d.id === trans.depotId)?.name || trans.depotId,
+            'Tanggal': trans.timestamp?.toDate().toLocaleString('id-ID'), 'Depo': allDepots.find(d => d.id === trans.depotId)?.name || trans.depotId,
             'Tipe': trans.type, 'Oleh': trans.user, 'Detail Barang': trans.items.map(i => `${i.name} (${i.displayQty})`).join('; ')
         }));
         filename = `laporan_transaksi_gabungan_${depotName}_${today}.csv`;
