@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { ref, onValue, get, update, push, serverTimestamp, runTransaction, query, orderByChild } from 'firebase/database';
-import { db as firebaseDb } from '../firebaseConfig';
+import React, { useState, useEffect, useRef } from 'react';
+import { collection, onSnapshot, getDocs, doc, updateDoc, addDoc, serverTimestamp, runTransaction } from 'firebase/firestore';
+import { firestoreDb } from '../firebaseConfig';
 import { addReturnToQueue, getQueuedReturns, removeReturnFromQueue } from '../offlineDb';
 import CameraBarcodeScanner from './CameraBarcodeScanner';
 import toast from 'react-hot-toast';
@@ -15,7 +15,6 @@ const TabReturBaik = ({ userProfile, locations, syncOfflineReturns, setActiveTab
   const [storeName, setStoreName] = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [selectedLocation, setSelectedLocation] = useState('');
-  // --- STATE BARU ---
   const [expireDate, setExpireDate] = useState('');
   const [transactionItems, setTransactionItems] = useState([]);
   const [showScanner, setShowScanner] = useState(false);
@@ -23,10 +22,10 @@ const TabReturBaik = ({ userProfile, locations, syncOfflineReturns, setActiveTab
 
   useEffect(() => {
     if (!userProfile.depotId) return;
-    const masterItemsRef = ref(firebaseDb, 'master_items');
-    const unsubscribe = onValue(masterItemsRef, (snapshot) => {
-      const data = snapshot.val();
-      const itemList = data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : [];
+    const masterItemsRef = collection(firestoreDb, 'master_items');
+    const unsubscribe = onSnapshot(masterItemsRef, (snapshot) => {
+      const data = snapshot.docs;
+      const itemList = data ? data.map(doc => ({ id: doc.id, ...doc.data() })) : [];
       setItems(itemList);
     });
     return () => unsubscribe();
@@ -44,7 +43,6 @@ const TabReturBaik = ({ userProfile, locations, syncOfflineReturns, setActiveTab
   };
 
   const handleAddItemToList = () => {
-    // --- VALIDASI BARU ---
     if (!selectedItem || !selectedLocation || !expireDate) { 
         toast.error("Barang, Lokasi Simpan, dan Tgl. Kedaluwarsa wajib diisi.");
         return; 
@@ -52,12 +50,11 @@ const TabReturBaik = ({ userProfile, locations, syncOfflineReturns, setActiveTab
     const totalPcs = (Number(dosQty) * (selectedItem.conversions.Dos?.inPcs || 1)) + (Number(packQty) * (selectedItem.conversions.Pack?.inPcs || 1)) + (Number(pcsQty));
     if (totalPcs <= 0) { toast.error("Masukkan jumlah yang valid."); return; }
     
-    // --- ITEM BARU DENGAN ED ---
     setTransactionItems([...transactionItems, { 
         id: selectedItem.id, name: selectedItem.name, 
         quantityInPcs: totalPcs, displayQty: `${dosQty}.${packQty}.${pcsQty}`,
         locationId: selectedLocation,
-        expireDate: expireDate // <-- Data ED ditambahkan
+        expireDate: expireDate
     }]);
     setSelectedItem(null); setSearchTerm(''); setDosQty(0); setPackQty(0); setPcsQty(0); setSelectedLocation(''); setExpireDate('');
   };
@@ -93,6 +90,10 @@ const TabReturBaik = ({ userProfile, locations, syncOfflineReturns, setActiveTab
     }
     setIsSubmitting(false);
   };
+  
+  const filteredItems = searchTerm.length > 0
+    ? items.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    : [];
 
   return (
     <>
@@ -107,12 +108,32 @@ const TabReturBaik = ({ userProfile, locations, syncOfflineReturns, setActiveTab
         </div>
         <div className="divider">Tambah Barang ke Daftar Retur</div>
         <div className="p-4 border rounded-lg bg-base-200 space-y-4">
-          <div className="form-control"><label className="label"><span className="label-text">Scan atau Cari Barang</span></label><div className="join w-full"><input type="text" placeholder="Ketik nama barang..." className="input input-bordered join-item w-full" value={searchTerm} onChange={(e) => {setSearchTerm(e.target.value); setSelectedItem(null);}}/><button type="button" onClick={() => setShowScanner(true)} className="btn btn-primary join-item">Scan</button></div></div>
-          {searchTerm.length > 0 && !selectedItem && (<ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">{items.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase())).map(item => (<li key={item.id}><a onClick={() => handleSelectItem(item)}>{item.name}</a></li>))}</ul>)}
-          {selectedItem && (<div className="mt-2 p-2 border rounded-md"><p className="font-bold">Barang Terpilih: <span className="text-secondary">{selectedItem.name}</span></p><div className="divider my-2"></div><div className="flex items-end gap-4 flex-wrap"><div className="form-control"><label className="label-text">DOS</label><input type="number" value={dosQty} onChange={(e) => setDosQty(e.target.valueAsNumber || 0)} className="input input-bordered input-sm" /></div><div className="form-control"><label className="label-text">PACK</label><input type="number" value={packQty} onChange={(e) => setPackQty(e.target.valueAsNumber || 0)} className="input input-bordered input-sm" /></div><div className="form-control"><label className="label-text">PCS</label><input type="number" value={pcsQty} onChange={(e) => setPcsQty(e.target.valueAsNumber || 0)} className="input input-bordered input-sm" /></div>
-          {/* --- INPUT ED BARU --- */}
-          <div className="form-control"><label className="label-text font-bold">Tgl. Kedaluwarsa</label><input type="date" value={expireDate} onChange={e => setExpireDate(e.target.value)} className="input input-sm input-bordered" /></div>
-          <div className="form-control flex-grow"><label className="label-text font-bold">Simpan ke Lokasi</label><select className="select select-sm select-bordered" value={selectedLocation} onChange={e => setSelectedLocation(e.target.value)}><option value="">Pilih Lokasi</option>{locations.map(loc => <option key={loc.id} value={loc.id}>{loc.namaLokasi}</option>)}</select></div><button type="button" onClick={handleAddItemToList} className="btn btn-secondary btn-sm">Tambah</button></div></div>)}
+          <div className="form-control dropdown">
+            <label className="label"><span className="label-text">Scan atau Cari Barang</span></label>
+            <div className="join w-full">
+              <input type="text" placeholder="Ketik nama barang..." className="input input-bordered join-item w-full" value={searchTerm} onChange={(e) => {setSearchTerm(e.target.value); setSelectedItem(null);}}/>
+              <button type="button" onClick={() => setShowScanner(true)} className="btn btn-primary join-item">Scan</button>
+            </div>
+             {filteredItems.length > 0 && !selectedItem && (
+                <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">
+                    {filteredItems.slice(0, 10).map(item => (<li key={item.id}><a onClick={() => handleSelectItem(item)}>{item.name}</a></li>))}
+                </ul>
+            )}
+          </div>
+          {selectedItem && (
+            <div className="mt-2 p-2 border rounded-md">
+              <p className="font-bold">Barang Terpilih: <span className="text-secondary">{selectedItem.name}</span></p>
+              <div className="divider my-2"></div>
+              <div className="flex items-end gap-4 flex-wrap">
+                <div className="form-control"><label className="label-text">DOS</label><input type="number" value={dosQty} onChange={(e) => setDosQty(e.target.valueAsNumber || 0)} className="input input-bordered input-sm" /></div>
+                <div className="form-control"><label className="label-text">PACK</label><input type="number" value={packQty} onChange={(e) => setPackQty(e.target.valueAsNumber || 0)} className="input input-bordered input-sm" /></div>
+                <div className="form-control"><label className="label-text">PCS</label><input type="number" value={pcsQty} onChange={(e) => setPcsQty(e.target.valueAsNumber || 0)} className="input input-bordered input-sm" /></div>
+                <div className="form-control"><label className="label-text font-bold">Tgl. Kedaluwarsa</label><input type="date" value={expireDate} onChange={e => setExpireDate(e.target.value)} className="input input-sm input-bordered" /></div>
+                <div className="form-control flex-grow"><label className="label-text font-bold">Simpan ke Lokasi</label><select className="select select-sm select-bordered" value={selectedLocation} onChange={e => setSelectedLocation(e.target.value)}><option value="">Pilih Lokasi</option>{locations.map(loc => <option key={loc.id} value={loc.id}>{loc.namaLokasi}</option>)}</select></div>
+                <button type="button" onClick={handleAddItemToList} className="btn btn-secondary btn-sm">Tambah</button>
+              </div>
+            </div>
+            )}
         </div>
         <div className="divider">Daftar Barang dalam Retur Ini</div>
         <div className="overflow-x-auto"><table className="table w-full"><thead><tr><th>Nama Barang</th><th>Jumlah Retur</th><th>Lokasi</th><th>Tgl. ED</th><th>Aksi</th></tr></thead><tbody>{transactionItems.map((item, index) => (<tr key={index}><td>{item.name}</td><td>{item.displayQty}</td><td>{item.locationId}</td><td>{item.expireDate}</td><td><button onClick={() => handleRemoveFromList(index)} className="btn btn-xs btn-error">Hapus</button></td></tr>))}</tbody></table></div>
@@ -126,7 +147,6 @@ const TabReturBaik = ({ userProfile, locations, syncOfflineReturns, setActiveTab
   );
 };
 
-// --- Komponen TabReturRusak dan lainnya tetap sama ---
 const TabReturRusak = ({ userProfile, locations, syncOfflineReturns, setActiveTab }) => {
   const [items, setItems] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -142,13 +162,14 @@ const TabReturRusak = ({ userProfile, locations, syncOfflineReturns, setActiveTa
   const [transactionItems, setTransactionItems] = useState([]);
   const [showScanner, setShowScanner] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [itemLocations, setItemLocations] = useState({});
 
   useEffect(() => {
     if (!userProfile.depotId) return;
-    const masterItemsRef = ref(firebaseDb, 'master_items');
-    onValue(masterItemsRef, (snapshot) => {
-      const data = snapshot.val();
-      const itemList = data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : [];
+    const masterItemsRef = collection(firestoreDb, 'master_items');
+    onSnapshot(masterItemsRef, (snapshot) => {
+      const data = snapshot.docs;
+      const itemList = data ? data.map(doc => ({ id: doc.id, ...doc.data() })) : [];
       setItems(itemList);
     });
   }, [userProfile.depotId]);
@@ -160,12 +181,12 @@ const TabReturRusak = ({ userProfile, locations, syncOfflineReturns, setActiveTa
   };
   
   const handleSelectItem = async (item) => {
-    const stockRef = ref(firebaseDb, `depots/${userProfile.depotId}/stock/${item.id}`);
-    const snapshot = await get(stockRef);
+    const stockRef = doc(firestoreDb, `depots/${userProfile.depotId}/stock/${item.id}`);
+    const snapshot = await getDoc(stockRef);
     if(snapshot.exists()) {
-        item.locations = snapshot.val().locations || {};
+        setItemLocations(snapshot.data().locations || {});
     } else {
-        item.locations = {};
+        setItemLocations({});
     }
     setSelectedItem(item);
     setSearchTerm(item.name);
@@ -179,7 +200,7 @@ const TabReturRusak = ({ userProfile, locations, syncOfflineReturns, setActiveTa
     if (totalPcs <= 0) { toast.error("Masukkan jumlah yang valid."); return; }
     
     if (returnOrigin === 'gudang') {
-        const stockDiLokasi = selectedItem.locations[sourceLocation] || 0;
+        const stockDiLokasi = itemLocations[sourceLocation] || 0;
         if (totalPcs > stockDiLokasi) {
             return toast.error(`Stok di lokasi ${sourceLocation} tidak cukup! Hanya ada ${stockDiLokasi} Pcs.`);
         }
@@ -224,6 +245,10 @@ const TabReturRusak = ({ userProfile, locations, syncOfflineReturns, setActiveTa
     }
     setIsSubmitting(false);
   };
+  
+  const filteredItems = searchTerm.length > 0
+    ? items.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    : [];
 
   return (
     <>
@@ -242,8 +267,18 @@ const TabReturRusak = ({ userProfile, locations, syncOfflineReturns, setActiveTa
         </div>
         <div className="divider">Tambah Barang Rusak ke Daftar</div>
         <div className="p-4 border rounded-lg bg-base-200 space-y-4">
-          <div className="form-control"><label className="label"><span className="label-text">Scan atau Cari Barang</span></label><div className="join w-full"><input type="text" placeholder="Ketik nama barang..." className="input input-bordered join-item w-full" value={searchTerm} onChange={(e) => {setSearchTerm(e.target.value); setSelectedItem(null);}}/><button type="button" onClick={() => setShowScanner(true)} className="btn btn-primary join-item">Scan</button></div></div>
-          {searchTerm.length > 0 && !selectedItem && (<ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">{items.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase())).map(item => (<li key={item.id}><a onClick={() => handleSelectItem(item)}>{item.name}</a></li>))}</ul>)}
+          <div className="form-control dropdown">
+            <label className="label"><span className="label-text">Scan atau Cari Barang</span></label>
+            <div className="join w-full">
+              <input type="text" placeholder="Ketik nama barang..." className="input input-bordered join-item w-full" value={searchTerm} onChange={(e) => {setSearchTerm(e.target.value); setSelectedItem(null);}}/>
+              <button type="button" onClick={() => setShowScanner(true)} className="btn btn-primary join-item">Scan</button>
+            </div>
+            {filteredItems.length > 0 && !selectedItem && (
+                <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">
+                    {filteredItems.slice(0, 10).map(item => (<li key={item.id}><a onClick={() => handleSelectItem(item)}>{item.name}</a></li>))}
+                </ul>
+            )}
+          </div>
           {selectedItem && (<div className="mt-2 p-2 border rounded-md">
             <p className="font-bold">Barang Terpilih: <span className="text-secondary">{selectedItem.name}</span></p>
             {returnOrigin === 'gudang' && 
@@ -251,7 +286,7 @@ const TabReturRusak = ({ userProfile, locations, syncOfflineReturns, setActiveTa
                     <label className="label-text font-bold">Ambil dari Lokasi</label>
                     <select value={sourceLocation} onChange={e => setSourceLocation(e.target.value)} className="select select-sm select-bordered">
                         <option value="">Pilih Lokasi Asal...</option>
-                        {Object.entries(selectedItem.locations).map(([locId, qty]) => qty > 0 && (<option key={locId} value={locId}>{locId} (Stok: {qty})</option>))}
+                        {Object.entries(itemLocations).map(([locId, qty]) => qty > 0 && (<option key={locId} value={locId}>{locId} (Stok: {qty})</option>))}
                     </select>
                 </div>
             }
@@ -289,23 +324,34 @@ const TabKirimPusat = ({ userProfile }) => {
 
   useEffect(() => {
     if (!userProfile.depotId) return;
-    const masterItemsRef = ref(firebaseDb, 'master_items');
-    get(masterItemsRef).then((masterSnapshot) => {
-        const masterItems = masterSnapshot.val() || {};
-        const stockRef = ref(firebaseDb, `depots/${userProfile.depotId}/stock`);
-        onValue(stockRef, (stockSnapshot) => {
-            const stockData = stockSnapshot.val() || {};
-            const damagedOnly = Object.keys(stockData)
-                .filter(itemId => (stockData[itemId].damagedStockInPcs || 0) > 0)
-                .map(itemId => ({ id: itemId, ...(masterItems[itemId] || {}), damagedStockInPcs: stockData[itemId].damagedStockInPcs }));
+    
+    const masterItemsRef = collection(firestoreDb, 'master_items');
+    getDocs(masterItemsRef).then((masterSnapshot) => {
+        const masterItems = {};
+        masterSnapshot.forEach(doc => {
+            masterItems[doc.id] = doc.data();
+        });
+
+        const stockRef = collection(firestoreDb, `depots/${userProfile.depotId}/stock`);
+        onSnapshot(stockRef, (stockSnapshot) => {
+            const damagedOnly = [];
+            stockSnapshot.forEach(doc => {
+                if((doc.data().damagedStockInPcs || 0) > 0) {
+                    damagedOnly.push({ 
+                        id: doc.id, 
+                        ...(masterItems[doc.id] || {}), 
+                        damagedStockInPcs: doc.data().damagedStockInPcs 
+                    });
+                }
+            });
             setDamagedItems(damagedOnly);
             setLoading(false);
         });
     });
-    const suppliersRef = ref(firebaseDb, 'suppliers/');
-    onValue(suppliersRef, (snapshot) => {
-      const data = snapshot.val();
-      const supplierList = data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : [];
+
+    const suppliersRef = collection(firestoreDb, 'suppliers');
+    onSnapshot(suppliersRef, (snapshot) => {
+      const supplierList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setSuppliers(supplierList);
     });
   }, [userProfile.depotId]);
@@ -340,23 +386,25 @@ const TabKirimPusat = ({ userProfile }) => {
     const actionType = processAction === 'kirim' ? 'Pengiriman BS ke Pusat' : 'Pemusnahan BS';
     
     try {
-        const updates = {};
+        const batch = writeBatch(firestoreDb);
         const transactionItems = [];
         for (const item of itemsToAction) {
-            updates[`/depots/${userProfile.depotId}/stock/${item.id}/damagedStockInPcs`] = 0;
+            const stockRef = doc(firestoreDb, `depots/${userProfile.depotId}/stock/${item.id}`);
+            batch.update(stockRef, { damagedStockInPcs: 0 });
             transactionItems.push({
                 id: item.id, name: item.name,
                 quantityInPcs: item.damagedStockInPcs,
                 displayQty: formatToDPP(item.damagedStockInPcs, item.conversions),
             });
         }
-        const transactionsRef = ref(firebaseDb, `depots/${userProfile.depotId}/transactions`);
-        const newTransactionKey = push(transactionsRef).key;
-        updates[`/depots/${userProfile.depotId}/transactions/${newTransactionKey}`] = {
+        const transactionsRef = collection(firestoreDb, `depots/${userProfile.depotId}/transactions`);
+        const newTransactionRef = doc(transactionsRef);
+        batch.set(newTransactionRef, {
             type: actionType, documentNumber: documentNumber, items: transactionItems,
             user: userProfile.fullName, timestamp: serverTimestamp()
-        };
-        await update(ref(firebaseDb), updates);
+        });
+        
+        await batch.commit();
         toast.success(`Aksi '${actionType}' berhasil disimpan.`);
         setShowProcessForm(false);
         setSelectedForShipment({});
@@ -437,11 +485,10 @@ const TabRiwayat = ({ userProfile }) => {
   useEffect(() => {
     if (!userProfile.depotId) return;
     setLoading(true);
-    const transRef = ref(firebaseDb, `depots/${userProfile.depotId}/transactions`);
-    const transQuery = query(transRef, orderByChild('timestamp'));
-    onValue(transQuery, (snapshot) => {
-      const data = snapshot.val() || {};
-      const allTransactions = Object.keys(data).map(key => ({ id: key, ...data[key] })).filter(t => transactionTypes.includes(t.type)).sort((a, b) => b.timestamp - a.timestamp);
+    const transRef = collection(firestoreDb, `depots/${userProfile.depotId}/transactions`);
+    const transQuery = query(transRef, orderBy('timestamp', 'desc'));
+    onSnapshot(transQuery, (snapshot) => {
+      const allTransactions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(t => transactionTypes.includes(t.type));
       setTransactions(allTransactions);
       setLoading(false);
     });
@@ -449,8 +496,8 @@ const TabRiwayat = ({ userProfile }) => {
 
   useEffect(() => {
     let items = [...transactions];
-    if (startDate) { const start = new Date(startDate).setHours(0, 0, 0, 0); items = items.filter(t => t.timestamp >= start); }
-    if (endDate) { const end = new Date(endDate).setHours(23, 59, 59, 999); items = items.filter(t => t.timestamp <= end); }
+    if (startDate) { const start = new Date(startDate).setHours(0, 0, 0, 0); items = items.filter(t => t.timestamp.toDate() >= start); }
+    if (endDate) { const end = new Date(endDate).setHours(23, 59, 59, 999); items = items.filter(t => t.timestamp.toDate() <= end); }
     if (filterType) { items = items.filter(t => t.type === filterType); }
     setFilteredTransactions(items);
   }, [startDate, endDate, filterType, transactions]);
@@ -474,10 +521,11 @@ const TabRiwayat = ({ userProfile }) => {
   return (
     <div className="p-4 space-y-4">
       <div className="p-4 bg-base-200 rounded-lg mb-4 grid grid-cols-1 md:grid-cols-4 gap-4"><div className="form-control"><label className="label-text">Dari Tanggal</label><input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="input input-bordered" /></div><div className="form-control"><label className="label-text">Sampai Tanggal</label><input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="input input-bordered" /></div><div className="form-control"><label className="label-text">Atau Pilih Bulan</label><select onChange={handleMonthSelect} className="select select-bordered"><option value="">Pilih Bulan...</option>{monthOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></div><div className="form-control"><label className="label-text">Filter Tipe</label><select value={filterType} onChange={e => setFilterType(e.target.value)} className="select select-bordered"><option value="">Semua Tipe</option>{transactionTypes.map(type => <option key={type} value={type}>{type}</option>)}</select></div></div>
-      <div className="overflow-x-auto"><table className="table table-zebra w-full"><thead><tr><th>Tanggal</th><th>Tipe</th><th>Detail</th><th>Oleh</th></tr></thead><tbody>{loading ? (<tr><td colSpan="4" className="text-center"><span className="loading loading-dots"></span></td></tr>) : filteredTransactions.length === 0 ? (<tr><td colSpan="4" className="text-center">Tidak ada data.</td></tr>) : (filteredTransactions.map(trans => (<tr key={trans.id}><td>{new Date(trans.timestamp).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short'})}</td><td><span className={`badge ${getBadgeColor(trans.type)}`}>{trans.type}</span></td><td><div className="text-xs">{trans.items.map(item => `${item.name} (${item.displayQty})`).join(', ')}{trans.fromStore && <span className="block">Dari: {trans.fromStore}</span>}{trans.documentNumber && <span className="block">No. Dok: {trans.documentNumber}</span>}</div></td><td>{trans.user}</td></tr>)))}</tbody></table></div>
+      <div className="overflow-x-auto"><table className="table table-zebra w-full"><thead><tr><th>Tanggal</th><th>Tipe</th><th>Detail</th><th>Oleh</th></tr></thead><tbody>{loading ? (<tr><td colSpan="4" className="text-center"><span className="loading loading-dots"></span></td></tr>) : filteredTransactions.length === 0 ? (<tr><td colSpan="4" className="text-center">Tidak ada data.</td></tr>) : (filteredTransactions.map(trans => (<tr key={trans.id}><td>{trans.timestamp?.toDate().toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short'})}</td><td><span className={`badge ${getBadgeColor(trans.type)}`}>{trans.type}</span></td><td><div className="text-xs">{trans.items.map(item => `${item.name} (${item.displayQty})`).join(', ')}{trans.fromStore && <span className="block">Dari: {trans.fromStore}</span>}{trans.documentNumber && <span className="block">No. Dok: {trans.documentNumber}</span>}</div></td><td>{trans.user}</td></tr>)))}</tbody></table></div>
     </div>
   );
 };
+
 
 function ManajemenRetur({ userProfile }) {
   const [activeTab, setActiveTab] = useState('returBaik');
@@ -487,62 +535,77 @@ function ManajemenRetur({ userProfile }) {
 
   useEffect(() => {
       if (!userProfile.depotId) return;
-      const locationsRef = ref(firebaseDb, `depots/${userProfile.depotId}/locations`);
-      onValue(locationsRef, (snapshot) => {
-          const data = snapshot.val() || {};
-          setLocations(Object.keys(data).map(key => ({ id: key, ...data[key] })));
+      const locationsRef = collection(firestoreDb, `depots/${userProfile.depotId}/locations`);
+      const unsub = onSnapshot(locationsRef, (snapshot) => {
+          setLocations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       });
+      return () => unsub();
   }, [userProfile]);
 
-  // --- LOGIKA SINKRONISASI BARU ---
   const syncOfflineReturns = async (returnsToSync, isOnlineSave = false) => {
     if (isSyncing && !isOnlineSave) return;
     setIsSyncing(true);
     let successCount = 0;
+    
     for (const returnData of returnsToSync) {
         try {
-            if (returnData.type === 'Retur Baik') {
-                for (const transItem of returnData.items) {
-                    const stockRef = ref(firebaseDb, `depots/${returnData.depotId}/stock/${transItem.id}`);
-                    const batchKey = push(ref(firebaseDb, `depots/${returnData.depotId}/stock/${transItem.id}/batches`)).key;
-                    await runTransaction(stockRef, (s) => { 
-                        if(!s) s = { totalStockInPcs: 0, batches: {} }; 
-                        s.batches = s.batches || {};
-                        s.totalStockInPcs = (s.totalStockInPcs || 0) + transItem.quantityInPcs; 
-                        s.batches[batchKey] = {
-                            quantity: transItem.quantityInPcs,
-                            expireDate: transItem.expireDate,
-                            locationId: transItem.locationId,
-                            receivedAt: serverTimestamp(),
+            await runTransaction(firestoreDb, async (transaction) => {
+                if (returnData.type === 'Retur Baik') {
+                    for (const transItem of returnData.items) {
+                        const stockDocRef = doc(firestoreDb, `depots/${returnData.depotId}/stock/${transItem.id}`);
+                        const stockDoc = await transaction.get(stockDocRef);
+                        
+                        let currentStock = stockDoc.exists() ? stockDoc.data() : { totalStockInPcs: 0, batches: {} };
+                        const newTotal = (currentStock.totalStockInPcs || 0) + transItem.quantityInPcs;
+                        const batchKey = doc(collection(firestoreDb, 'temp')).id;
+
+                        const newBatch = {
+                            quantity: transItem.quantityInPcs, expireDate: transItem.expireDate,
+                            locationId: transItem.locationId, receivedAt: serverTimestamp(),
                             receiptId: `RETUR-${returnData.fromStore}`
                         };
-                        return s; 
-                    });
+                        
+                        transaction.set(stockDocRef, {
+                            totalStockInPcs: newTotal,
+                            batches: { ...currentStock.batches, [batchKey]: newBatch },
+                        }, { merge: true });
+                    }
+                } else if (returnData.type === 'Retur Rusak') {
+                    for (const transItem of returnData.items) {
+                        const stockDocRef = doc(firestoreDb, `depots/${returnData.depotId}/stock/${transItem.id}`);
+                        const stockDoc = await transaction.get(stockDocRef);
+                        if (!stockDoc.exists() && returnData.origin === 'gudang') throw new Error(`Stok ${transItem.name} tidak ditemukan.`);
+
+                        let currentData = stockDoc.data() || {};
+                        let newDamaged = (currentData.damagedStockInPcs || 0) + transItem.quantityInPcs;
+                        
+                        transaction.set(stockDocRef, { damagedStockInPcs: newDamaged }, { merge: true });
+
+                        if (returnData.origin === 'gudang') {
+                           if ((currentData.totalStockInPcs || 0) < transItem.quantityInPcs) { throw new Error(`Stok ${transItem.name} tidak cukup.`); }
+                           let newTotal = currentData.totalStockInPcs - transItem.quantityInPcs;
+                           let newLocationStock = (currentData.locations?.[transItem.sourceLocationId] || 0) - transItem.quantityInPcs;
+                           transaction.update(stockDocRef, { 
+                               totalStockInPcs: newTotal,
+                               [`locations.${transItem.sourceLocationId}`]: newLocationStock
+                           });
+                        }
+                    }
                 }
-            } else if (returnData.type === 'Retur Rusak') {
-                 for (const transItem of returnData.items) {
-                    const stockRef = ref(firebaseDb, `depots/${returnData.depotId}/stock/${transItem.id}`);
-                    await runTransaction(stockRef, (s) => { 
-                        if (!s) s = { totalStockInPcs: 0, damagedStockInPcs: 0, locations: {} }; 
-                        s.damagedStockInPcs = (s.damagedStockInPcs || 0) + transItem.quantityInPcs; 
-                        if (returnData.origin === 'gudang') { 
-                            if ((s.totalStockInPcs || 0) < transItem.quantityInPcs) { throw new Error(`Stok ${transItem.name} tidak cukup.`); } 
-                            s.totalStockInPcs -= transItem.quantityInPcs; 
-                            s.locations[transItem.sourceLocationId] = (s.locations[transItem.sourceLocationId] || 0) - transItem.quantityInPcs; 
-                        } 
-                        return s; 
-                    });
-                }
-            }
-            const transactionsRef = ref(firebaseDb, `depots/${returnData.depotId}/transactions`);
-            await push(transactionsRef, { ...returnData, timestamp: serverTimestamp() });
+            });
+            
+            const transactionsRef = collection(firestoreDb, `depots/${returnData.depotId}/transactions`);
+            await addDoc(transactionsRef, { ...returnData, timestamp: serverTimestamp() });
+
             if (returnData.localId) { await removeReturnFromQueue(returnData.localId); }
             successCount++;
+
         } catch (err) {
             toast.error(`Gagal sinkronisasi retur: ${err.message}`);
-            break;
+            break; 
         }
     }
+    
     if (successCount > 0) toast.success(`${successCount} data retur disinkronkan.`);
     checkPendingReturns();
     setIsSyncing(false);
