@@ -2,13 +2,14 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
+// Gunakan environment variables dari Vite (import.meta.env)
 const firebaseConfig = {
-  apiKey: "AIzaSyBucag6re9uHGX2xbKkCHDYp8EcpIo1A0A",
-  authDomain: "managementstokgudang.firebaseapp.com",
-  projectId: "manajemenstokgudang",
-  storageBucket: "managementstokgudang.firebasestorage.app",
-  messagingSenderId: "619194018490",
-  appId: "1:619194018490:web:43f0480613276521c57083"
+  apiKey: import.meta.env.VITE_API_KEY,
+  authDomain: import.meta.env.VITE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_APP_ID
 };
 
 const app = initializeApp(firebaseConfig);
