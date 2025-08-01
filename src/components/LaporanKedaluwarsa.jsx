@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { ref, onValue, get } from 'firebase/database';
-import { db } from '../firebaseConfig';
+import { collection, onSnapshot, getDocs } from 'firebase/firestore';
+import { firestoreDb } from '../firebaseConfig';
 
 function LaporanKedaluwarsa({ userProfile }) {
   const [loading, setLoading] = useState(true);
   const [masterItems, setMasterItems] = useState({});
   const [allBatches, setAllBatches] = useState([]);
   const [filteredBatches, setFilteredBatches] = useState([]);
-  
+
   // State untuk filter: 30, 60, 90 hari, atau 'expired'
   const [filterMode, setFilterMode] = useState(30);
 
@@ -18,26 +18,32 @@ function LaporanKedaluwarsa({ userProfile }) {
     }
 
     // Ambil master barang sekali saja untuk mendapatkan nama
-    const masterItemsRef = ref(db, 'master_items');
-    get(masterItemsRef).then(snapshot => {
-        setMasterItems(snapshot.val() || {});
+    const masterItemsRef = collection(firestoreDb, 'master_items');
+    getDocs(masterItemsRef).then(snapshot => {
+        const items = {};
+        snapshot.forEach(doc => {
+            items[doc.id] = doc.data();
+        });
+        setMasterItems(items);
     });
 
-    // Ambil semua data stok
-    const stockRef = ref(db, `depots/${userProfile.depotId}/stock`);
-    const unsubscribe = onValue(stockRef, (snapshot) => {
-      const stockData = snapshot.val() || {};
+    // Ambil semua data stok dari subkoleksi 'stock' di Firestore
+    const stockRef = collection(firestoreDb, `depots/${userProfile.depotId}/stock`);
+    const unsubscribe = onSnapshot(stockRef, (snapshot) => {
       const processedBatches = [];
       const now = new Date();
       now.setHours(0, 0, 0, 0); // Set ke awal hari
 
-      // Loop setiap item di stok
-      for (const itemId in stockData) {
-        const item = stockData[itemId];
+      // Loop setiap dokumen item di koleksi stok
+      snapshot.forEach(doc => {
+        const itemId = doc.id;
+        const item = doc.data();
         if (item.batches) {
           // Loop setiap batch di dalam item
           for (const batchId in item.batches) {
             const batch = item.batches[batchId];
+            if (!batch.expireDate) continue; // Lewati jika tidak ada tgl ED
+
             const expireDate = new Date(batch.expireDate);
             
             // Hitung selisih hari
@@ -53,7 +59,7 @@ function LaporanKedaluwarsa({ userProfile }) {
             });
           }
         }
-      }
+      });
       setAllBatches(processedBatches);
       setLoading(false);
     });
