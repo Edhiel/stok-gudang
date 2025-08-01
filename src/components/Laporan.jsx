@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ref, onValue } from 'firebase/database';
-import { db } from '../firebaseConfig';
+import { collection, onSnapshot, getDocs } from 'firebase/firestore';
+import { firestoreDb } from '../firebaseConfig';
 import Papa from 'papaparse';
 
 const LaporanStok = ({ stockData, loading }) => {
@@ -26,7 +26,7 @@ const LaporanStok = ({ stockData, loading }) => {
             : (stockData.map(item => (
                 <tr key={item.id}>
                     <td className="font-bold">{item.name}</td><td>{item.category}</td><td>{item.supplierName}</td>
-                    <td>{formatToDPP(item.totalStock, item.conversions)}</td><td className='text-red-600'>{formatToDPP(item.damagedStock, item.conversions)}</td>
+                    <td>{formatToDPP(item.totalStockInPcs, item.conversions)}</td><td className='text-red-600'>{formatToDPP(item.damagedStockInPcs, item.conversions)}</td>
                 </tr>
                 )))}
             </tbody>
@@ -47,7 +47,7 @@ const LaporanTransaksi = ({ transactions, loading }) => {
                 : transactions.length === 0 ? (<tr><td colSpan="4" className="text-center">Tidak ada data yang cocok dengan filter.</td></tr>)
                 : (transactions.map(trans => (
                     <tr key={trans.id}>
-                        <td>{new Date(trans.timestamp).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short'})}</td>
+                        <td>{trans.timestamp?.toDate().toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short'})}</td>
                         <td><span className={`badge ${trans.type.includes('Masuk') || trans.type.includes('Baik') ? 'badge-success' : 'badge-error'}`}>{trans.type}</span></td>
                         <td>
                             {trans.items.map((item, idx) => (<div key={idx} className="text-xs">{item.name} ({item.displayQty})</div>))}
@@ -95,16 +95,22 @@ function Laporan({ userProfile }) {
     if (!userProfile || !userProfile.depotId) { setLoading(false); return; }
     setLoading(true);
 
-    const masterItemsRef = ref(db, 'master_items');
-    const stockRef = ref(db, `depots/${userProfile.depotId}/stock`);
-    onValue(masterItemsRef, (masterSnapshot) => {
-        const masterItems = masterSnapshot.val() || {};
-        onValue(stockRef, (stockSnapshot) => {
-            const stockItems = stockSnapshot.val() || {};
-            const combinedData = Object.keys(masterItems).map(itemId => {
-                const stockInfo = stockItems[itemId] || { totalStock: 0, damagedStock: 0 };
-                return { id: itemId, ...masterItems[itemId], ...stockInfo };
+    const fetchData = async () => {
+        const masterItemsSnap = await getDocs(collection(firestoreDb, 'master_items'));
+        const masterItems = {};
+        masterItemsSnap.forEach(doc => {
+            masterItems[doc.id] = doc.data();
+        });
+
+        const stockRef = collection(firestoreDb, `depots/${userProfile.depotId}/stock`);
+        const unsubStock = onSnapshot(stockRef, (stockSnapshot) => {
+            const combinedData = [];
+            stockSnapshot.forEach(doc => {
+                const stockInfo = doc.data();
+                const masterInfo = masterItems[doc.id] || {};
+                combinedData.push({ id: doc.id, ...masterInfo, ...stockInfo });
             });
+
             setOriginalStockData(combinedData);
             setFilteredStockData(combinedData);
 
@@ -113,17 +119,23 @@ function Laporan({ userProfile }) {
             setSupplierList(suppliers.sort());
             setCategoryList(categories.sort());
         });
-    });
+        
+        const transRef = collection(firestoreDb, `depots/${userProfile.depotId}/transactions`);
+        const unsubTrans = onSnapshot(transRef, (snapshot) => {
+            const loadedTrans = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const sortedTrans = loadedTrans.sort((a, b) => b.timestamp?.toMillis() - a.timestamp?.toMillis());
+            setOriginalTransactions(sortedTrans);
+            setFilteredTransactions(sortedTrans);
+            setLoading(false);
+        });
 
-    const transRef = ref(db, `depots/${userProfile.depotId}/transactions`);
-    onValue(transRef, (snapshot) => {
-        const data = snapshot.val() || {};
-        const loadedTrans = Object.keys(data).map(key => ({ id: key, ...data[key] }));
-        const sortedTrans = loadedTrans.sort((a, b) => b.timestamp - a.timestamp);
-        setOriginalTransactions(sortedTrans);
-        setFilteredTransactions(sortedTrans);
-        setLoading(false);
-    });
+        return () => {
+            unsubStock();
+            unsubTrans();
+        };
+    };
+    
+    fetchData();
   }, [userProfile]);
 
   useEffect(() => {
@@ -134,8 +146,8 @@ function Laporan({ userProfile }) {
     setFilteredStockData(newFilteredStock);
 
     let newFilteredTrans = [...originalTransactions];
-    if (filterStartDate) { const startDate = new Date(filterStartDate).setHours(0, 0, 0, 0); newFilteredTrans = newFilteredTrans.filter(trans => trans.timestamp >= startDate); }
-    if (filterEndDate) { const endDate = new Date(filterEndDate).setHours(23, 59, 59, 999); newFilteredTrans = newFilteredTrans.filter(trans => trans.timestamp <= endDate); }
+    if (filterStartDate) { const startDate = new Date(filterStartDate).setHours(0, 0, 0, 0); newFilteredTrans = newFilteredTrans.filter(trans => trans.timestamp?.toDate() >= startDate); }
+    if (filterEndDate) { const endDate = new Date(filterEndDate).setHours(23, 59, 59, 999); newFilteredTrans = newFilteredTrans.filter(trans => trans.timestamp?.toDate() <= endDate); }
     setFilteredTransactions(newFilteredTrans);
 
     setCurrentPage(1);
@@ -167,12 +179,12 @@ function Laporan({ userProfile }) {
     if (activeTab === 'stok') {
         dataToExport = filteredStockData.map(item => ({
             'Nama Barang': item.name, 'Kategori': item.category, 'Supplier': item.supplierName,
-            'Stok Baik (Pcs)': item.totalStock || 0, 'Stok Rusak (Pcs)': item.damagedStock || 0
+            'Stok Baik (Pcs)': item.totalStockInPcs || 0, 'Stok Rusak (Pcs)': item.damagedStockInPcs || 0
         }));
         filename = `laporan_stok_${userProfile.depotId}_${today}.csv`;
     } else if (activeTab === 'transaksi') {
         dataToExport = filteredTransactions.map(trans => ({
-            'Tanggal': new Date(trans.timestamp).toLocaleString('id-ID'), 'Tipe': trans.type, 'Oleh': trans.user,
+            'Tanggal': trans.timestamp?.toDate().toLocaleString('id-ID'), 'Tipe': trans.type, 'Oleh': trans.user,
             'Toko/Asal': trans.fromStore || trans.storeName || '-', 'No Dokumen': trans.invoiceNumber || trans.suratJalan || '-',
             'Detail Barang': trans.items.map(i => `${i.name} (${i.displayQty})`).join('; ')
         }));
