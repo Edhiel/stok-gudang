@@ -1,17 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ref, onValue, get, runTransaction, push, serverTimestamp } from 'firebase/database';
-import { db } from '../firebaseConfig'; // Pastikan path ini benar
+import { collection, getDocs, onSnapshot, doc, runTransaction, addDoc, serverTimestamp } from 'firebase/firestore';
+import { firestoreDb } from '../firebaseConfig';
 import toast from 'react-hot-toast';
 import Papa from 'papaparse';
-import ReactToPrint from 'react-to-print'; // <-- 1. Impor library
+import ReactToPrint from 'react-to-print';
 
-// =====================================================================
-// KOMPONEN BARU: Blangko Kosong yang Akan Dicetak
-// =====================================================================
-// Komponen ini didesain khusus untuk dicetak dan tidak akan terlihat di layar.
-// Kita menggunakan 'forwardRef' agar bisa diakses oleh react-to-print.
 const BlangkoOpnameManual = React.forwardRef((props, ref) => {
-  const tableRows = Array.from({ length: 20 }, (_, i) => i); // Buat 20 baris kosong
+  const tableRows = Array.from({ length: 20 }, (_, i) => i);
 
   return (
     <div ref={ref} className="p-8">
@@ -29,7 +24,6 @@ const BlangkoOpnameManual = React.forwardRef((props, ref) => {
       <div className="text-center mb-6">
         <h3 className="text-xl font-bold uppercase">Formulir Perhitungan Stok Fisik (Stock Opname)</h3>
       </div>
-
       <table className="w-full text-sm border-collapse border border-black mb-6">
         <tbody>
           <tr>
@@ -52,7 +46,6 @@ const BlangkoOpnameManual = React.forwardRef((props, ref) => {
           </tr>
         </tbody>
       </table>
-
       <h4 className="font-bold mb-2 text-center">II. DETAIL PERHITUNGAN STOK BARANG</h4>
       <table className="w-full text-xs border-collapse border border-black">
         <thead className="bg-gray-200">
@@ -80,7 +73,6 @@ const BlangkoOpnameManual = React.forwardRef((props, ref) => {
           ))}
         </tbody>
       </table>
-      
       <div style={{ pageBreakInside: 'avoid', marginTop: '40px' }}>
           <h4 className="font-bold mb-12 text-center">III. VALIDASI DAN PERSETUJUAN</h4>
           <table className="w-full text-center">
@@ -107,11 +99,7 @@ const BlangkoOpnameManual = React.forwardRef((props, ref) => {
   );
 });
 
-// =====================================================================
-// Komponen Opname Manual (SUDAH DIMODIFIKASI)
-// =====================================================================
 const ManualOpname = ({ setView }) => {
-  // 2. Buat Ref untuk menunjuk ke komponen blangko
   const componentRef = useRef();
 
   return (
@@ -120,22 +108,16 @@ const ManualOpname = ({ setView }) => {
         <h2 className="text-2xl font-bold">Stok Opname Manual</h2>
         <button onClick={() => setView('pilihan')} className="btn btn-ghost">Kembali</button>
       </div>
-
       <div className="card bg-white shadow-lg p-6">
         <p className="mb-4">Untuk memulai perhitungan manual, cetak blangko kosong terlebih dahulu untuk pencatatan di lapangan.</p>
-        
-        {/* 3. Gunakan ReactToPrint untuk membuat tombol cetak */}
         <ReactToPrint
           trigger={() => <button className="btn btn-primary">Cetak Blangko Kosong</button>}
           content={() => componentRef.current}
           documentTitle="Blangko_Stok_Opname"
         />
-
-        {/* Komponen blangko kita letakkan di sini tapi disembunyikan dari layar */}
         <div style={{ display: "none" }}>
           <BlangkoOpnameManual ref={componentRef} />
         </div>
-
         <div className="divider my-6">Setelah Perhitungan Selesai</div>
         <p>Gunakan fitur "Impor dari CSV" untuk mengunggah dan menyesuaikan hasil perhitungan Anda secara massal.</p>
       </div>
@@ -143,10 +125,6 @@ const ManualOpname = ({ setView }) => {
   );
 };
 
-
-// =====================================================================
-// Komponen Pilihan Awal
-// =====================================================================
 const PilihanOpname = ({ setView }) => (
     <div className="flex items-center justify-center" style={{ minHeight: '60vh' }}>
         <div className="text-center">
@@ -163,10 +141,6 @@ const PilihanOpname = ({ setView }) => (
     </div>
 );
 
-
-// =====================================================================
-// Komponen Impor CSV (Tidak ada perubahan, tapi tetap disertakan)
-// =====================================================================
 const ImporOpname = ({ setView, userProfile, masterItems, stockData }) => {
   const [loading, setLoading] = useState(false);
   const [previewData, setPreviewData] = useState([]);
@@ -231,11 +205,9 @@ const ImporOpname = ({ setView, userProfile, masterItems, stockData }) => {
 
     try {
       for (const item of itemsToAdjust) {
-        const stockRef = ref(db, `depots/${userProfile.depotId}/stock/${item.itemId}`);
-        await runTransaction(stockRef, (currentStock) => {
-          if (!currentStock) return { totalStockInPcs: item.stokFisik, locations: {} };
-          currentStock.totalStockInPcs = item.stokFisik;
-          return currentStock;
+        const stockDocRef = doc(firestoreDb, `depots/${userProfile.depotId}/stock/${item.itemId}`);
+        await runTransaction(firestoreDb, async (transaction) => {
+          transaction.set(stockDocRef, { totalStockInPcs: item.stokFisik }, { merge: true });
         });
         transactionItems.push({
             id: item.itemId, name: item.namaBarang, selisih: item.selisih,
@@ -244,8 +216,8 @@ const ImporOpname = ({ setView, userProfile, masterItems, stockData }) => {
         successCount++;
       }
       
-      const transactionsRef = ref(db, `depots/${userProfile.depotId}/transactions`);
-      await push(transactionsRef, {
+      const transactionsRef = collection(firestoreDb, `depots/${userProfile.depotId}/transactions`);
+      await addDoc(transactionsRef, {
         type: 'Stok Opname (Impor CSV)', fileName: fileName, items: transactionItems,
         user: userProfile.fullName, timestamp: serverTimestamp()
       });
@@ -269,9 +241,9 @@ const ImporOpname = ({ setView, userProfile, masterItems, stockData }) => {
     return '';
   };
     
-  // JSX untuk ImporOpname... (tidak ada perubahan di sini)
     if (loading) { return <div className="text-center p-8"><span className="loading loading-spinner loading-lg"></span></div>; }
-    if (showPreview) { /* ... JSX preview ... */ 
+    
+    if (showPreview) {
         const summary = {
           sesuai: previewData.filter(p => p.status === 'Sesuai').length,
           disesuaikan: previewData.filter(p => p.status === 'Akan Disesuaikan').length,
@@ -280,7 +252,29 @@ const ImporOpname = ({ setView, userProfile, masterItems, stockData }) => {
         return (
           <div className="p-4 md:p-8">
             <h2 className="text-2xl font-bold mb-4">Preview Impor Stok Opname</h2>
-            {/* ... sisa JSX preview sama seperti sebelumnya ... */}
+            <div className="stats shadow w-full mb-6">
+              <div className="stat"><div className="stat-title">Total Baris</div><div className="stat-value">{previewData.length}</div></div>
+              <div className="stat"><div className="stat-title">Sesuai</div><div className="stat-value text-success">{summary.sesuai}</div></div>
+              <div className="stat"><div className="stat-title">Akan Disesuaikan</div><div className="stat-value text-warning">{summary.disesuaikan}</div></div>
+              <div className="stat"><div className="stat-title">Tidak Ditemukan</div><div className="stat-value text-error">{summary.tidakDitemukan}</div></div>
+            </div>
+            <div className="overflow-x-auto bg-white rounded-lg shadow-lg">
+              <table className="table table-sm w-full">
+                <thead className="bg-gray-200"><tr><th>Kode</th><th>Nama Barang</th><th>Stok Sistem</th><th>Stok Fisik</th><th>Selisih</th><th>Status</th></tr></thead>
+                <tbody>
+                  {previewData.map((row, index) => (
+                    <tr key={index} className={getStatusColor(row.status)}>
+                      <td className="font-mono text-xs">{row.kodeInternal}</td>
+                      <td>{row.namaBarang}</td>
+                      <td>{row.stokSistem}</td>
+                      <td>{row.stokFisik}</td>
+                      <td>{row.selisih}</td>
+                      <td>{row.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <div className="mt-6 flex justify-end gap-4">
                 <button onClick={() => setShowPreview(false)} disabled={isProcessing} className="btn btn-ghost">Batal / Unggah Ulang</button>
                 <button onClick={handleConfirmAdjustment} disabled={isProcessing || summary.disesuaikan === 0} className="btn btn-primary">
@@ -309,9 +303,6 @@ const ImporOpname = ({ setView, userProfile, masterItems, stockData }) => {
     );
 };
 
-// =====================================================================
-// Komponen Utama (Induk)
-// =====================================================================
 function StockOpname({ userProfile }) {
   const [view, setView] = useState('pilihan'); // pilihan, manual, impor
   const [masterItems, setMasterItems] = useState({});
@@ -323,24 +314,34 @@ function StockOpname({ userProfile }) {
       setLoading(false);
       return;
     }
-    const masterItemsRef = ref(db, 'master_items');
-    get(masterItemsRef).then((snapshot) => {
-      const items = snapshot.val() || {};
-      const itemsByInternalCode = {};
-      Object.keys(items).forEach(key => {
-        const item = items[key];
-        if (item.kodeInternal) {
-          itemsByInternalCode[item.kodeInternal.toUpperCase()] = { id: key, ...item };
-        }
-      });
-      setMasterItems(itemsByInternalCode);
+    
+    const fetchFirestoreData = async () => {
+        const masterItemsRef = collection(firestoreDb, 'master_items');
+        const masterSnapshot = await getDocs(masterItemsRef);
+        const itemsByInternalCode = {};
+        masterSnapshot.forEach(doc => {
+            const item = doc.data();
+            if (item.kodeInternal) {
+                itemsByInternalCode[item.kodeInternal.toUpperCase()] = { id: doc.id, ...item };
+            }
+        });
+        setMasterItems(itemsByInternalCode);
 
-      const stockRef = ref(db, `depots/${userProfile.depotId}/stock`);
-      onValue(stockRef, (stockSnapshot) => {
-        setStockData(stockSnapshot.val() || {});
-        setLoading(false);
-      });
-    });
+        const stockRef = collection(firestoreDb, `depots/${userProfile.depotId}/stock`);
+        const unsubscribeStock = onSnapshot(stockRef, (stockSnapshot) => {
+            const stocks = {};
+            stockSnapshot.forEach(doc => {
+                stocks[doc.id] = doc.data();
+            });
+            setStockData(stocks);
+            setLoading(false);
+        });
+
+        return () => unsubscribeStock();
+    };
+    
+    fetchFirestoreData();
+
   }, [userProfile]);
 
   const renderView = () => {
