@@ -47,7 +47,21 @@ function Navbar({ user, setPage, handleLogout }) {
             </ul></details></li>
           )}
           
-          {canAccessMasterData && ( <li tabIndex={0}><details><summary>Data Master</summary><ul className="p-2 bg-base-100 text-base-content w-56"><li><a onClick={() => setPage('kelola-master-barang')}>Master Barang</a></li><li><a onClick={() => setPage('kelola-supplier')}>Supplier</a></li><li><a onClick={() => setPage('kelola-kategori')}>Kategori</a></li></ul></details></li> )}
+          {canAccessMasterData && ( 
+            <li tabIndex={0}>
+              <details>
+                <summary>Data Master</summary>
+                <ul className="p-2 bg-base-100 text-base-content w-56">
+                  <li><a onClick={() => setPage('kelola-master-barang')}>Master Barang</a></li>
+                  {/* BARIS YANG DITAMBAHKAN */}
+                  <li><a onClick={() => setPage('kelola-toko')}>Toko / Pelanggan</a></li> 
+                  <li><a onClick={() => setPage('kelola-supplier')}>Supplier</a></li>
+                  <li><a onClick={() => setPage('kelola-kategori')}>Kategori</a></li>
+                  <li><a onClick={() => setPage('kelola-lokasi')}>Lokasi Gudang</a></li>
+                </ul>
+              </details>
+            </li> 
+          )}
           
           {isSuperAdmin && ( <li tabIndex={0}><details><summary>Administrasi</summary><ul className="p-2 bg-base-100 text-base-content w-52"><li><a onClick={() => setPage('kelola-pengguna')}>Pengguna</a></li><li><a onClick={() => setPage('kelola-depo')}>Depo</a></li><li><a onClick={() => setPage('alokasi-supplier')}>Alokasi Supplier</a></li><li><a onClick={() => setPage('backup-restore')}>Backup & Restore</a></li></ul></details></li> )}
           
