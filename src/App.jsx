@@ -4,13 +4,10 @@ import { doc, getDoc } from 'firebase/firestore';
 import { auth, firestoreDb } from './firebaseConfig';
 import { Toaster, toast } from 'react-hot-toast';
 
-// Komponen Halaman Login & Register tidak perlu di-lazy load
 import Login from './components/Login';
 import Register from './components/Register';
 import Navbar from './components/Navbar';
 
-// === Lazy Loading Components ===
-// Komponen utama akan dimuat hanya saat dibutuhkan
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const KelolaPengguna = lazy(() => import('./components/KelolaPengguna'));
 const KelolaDepo = lazy(() => import('./components/KelolaDepo'));
@@ -36,7 +33,6 @@ const TransferStok = lazy(() => import('./components/TransferStok'));
 const KelolaToko = lazy(() => import('./components/KelolaToko'));
 const KelolaLokasi = lazy(() => import('./components/KelolaLokasi'));
 
-// Komponen loading sederhana untuk Suspense
 const LoadingFallback = () => (
   <div className="flex justify-center items-center h-screen">
     <span className="loading loading-spinner loading-lg"></span>
@@ -190,7 +186,6 @@ function App() {
         ComponentToRender = <Dashboard user={userProfile} setPage={setMainPage} />;
     }
 
-    // Jika ComponentToRender tidak ter-assign (karena hak akses), kembali ke Dashboard
     return ComponentToRender || <Dashboard user={userProfile} setPage={setMainPage} />;
   };
 
@@ -219,4 +214,3 @@ function App() {
 }
 
 export default App;
-
