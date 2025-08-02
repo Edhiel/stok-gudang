@@ -1,35 +1,47 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, firestoreDb } from './firebaseConfig';
 import { Toaster, toast } from 'react-hot-toast';
+
+// Komponen Halaman Login & Register tidak perlu di-lazy load
 import Login from './components/Login';
 import Register from './components/Register';
 import Navbar from './components/Navbar';
-import Dashboard from './components/Dashboard';
-import KelolaPengguna from './components/KelolaPengguna';
-import KelolaDepo from './components/KelolaDepo';
-import KelolaSupplier from './components/KelolaSupplier';
-import KelolaMasterBarang from './components/KelolaMasterBarang';
-import AlokasiSupplier from './components/AlokasiSupplier';
-import KelolaKategori from './components/KelolaKategori';
-import StokMasuk from './components/StokMasuk';
-import StokKeluar from './components/StokKeluar';
-import FakturTertunda from './components/FakturTertunda';
-import KelolaFakturTertunda from './components/KelolaFakturTertunda';
-import ManajemenRetur from './components/ManajemenRetur';
-import Laporan from './components/Laporan';
-import LaporanKedaluwarsa from './components/LaporanKedaluwarsa';
-import BackupRestore from './components/BackupRestore';
-import BuatOrder from './components/BuatOrder';
-import ProsesOrder from './components/ProsesOrder';
-import ProsesPengeluaranGudang from './components/ProsesPengeluaranGudang';
-import StockOpname from './components/StockOpname';
-import UserProfile from './components/UserProfile';
-import KantorPusat from './components/KantorPusat';
-import TransferStok from './components/TransferStok';
-import KelolaToko from './components/KelolaToko';
-import KelolaLokasi from './components/KelolaLokasi';
+
+// === Lazy Loading Components ===
+// Komponen utama akan dimuat hanya saat dibutuhkan
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const KelolaPengguna = lazy(() => import('./components/KelolaPengguna'));
+const KelolaDepo = lazy(() => import('./components/KelolaDepo'));
+const KelolaSupplier = lazy(() => import('./components/KelolaSupplier'));
+const KelolaMasterBarang = lazy(() => import('./components/KelolaMasterBarang'));
+const AlokasiSupplier = lazy(() => import('./components/AlokasiSupplier'));
+const KelolaKategori = lazy(() => import('./components/KelolaKategori'));
+const StokMasuk = lazy(() => import('./components/StokMasuk'));
+const StokKeluar = lazy(() => import('./components/StokKeluar'));
+const FakturTertunda = lazy(() => import('./components/FakturTertunda'));
+const KelolaFakturTertunda = lazy(() => import('./components/KelolaFakturTertunda'));
+const ManajemenRetur = lazy(() => import('./components/ManajemenRetur'));
+const Laporan = lazy(() => import('./components/Laporan'));
+const LaporanKedaluwarsa = lazy(() => import('./components/LaporanKedaluwarsa'));
+const BackupRestore = lazy(() => import('./components/BackupRestore'));
+const BuatOrder = lazy(() => import('./components/BuatOrder'));
+const ProsesOrder = lazy(() => import('./components/ProsesOrder'));
+const ProsesPengeluaranGudang = lazy(() => import('./components/ProsesPengeluaranGudang'));
+const StockOpname = lazy(() => import('./components/StockOpname'));
+const UserProfile = lazy(() => import('./components/UserProfile'));
+const KantorPusat = lazy(() => import('./components/KantorPusat'));
+const TransferStok = lazy(() => import('./components/TransferStok'));
+const KelolaToko = lazy(() => import('./components/KelolaToko'));
+const KelolaLokasi = lazy(() => import('./components/KelolaLokasi'));
+
+// Komponen loading sederhana untuk Suspense
+const LoadingFallback = () => (
+  <div className="flex justify-center items-center h-screen">
+    <span className="loading loading-spinner loading-lg"></span>
+  </div>
+);
 
 function App() {
   const [userProfile, setUserProfile] = useState(null);
@@ -46,7 +58,6 @@ function App() {
             if (docSnap.exists()) {
               setUserProfile({ uid: user.uid, ...docSnap.data() });
             } else {
-              console.error('No such user document in Firestore!');
               toast.error('Data pengguna tidak ditemukan!');
               signOut(auth);
             }
@@ -74,7 +85,6 @@ function App() {
       setMainPage('dashboard');
       toast.success('Berhasil logout!');
     } catch (error) {
-      console.error('Gagal logout:', error);
       toast.error('Gagal logout! Silakan coba lagi.');
     }
   };
@@ -104,90 +114,88 @@ function App() {
     const canProcessOrder = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(userProfile.role);
     const isDriverOrHelper = ['Sopir', 'Helper Depo'].includes(userProfile.role);
 
+    let ComponentToRender;
+
     switch (mainPage) {
       case 'buat-order':
-        if (isSales || isSuperAdmin) return <BuatOrder userProfile={userProfile} />;
+        if (isSales || isSuperAdmin) ComponentToRender = <BuatOrder userProfile={userProfile} />;
         break;
       case 'proses-order':
-        if (canProcessOrder || isSuperAdmin) return <ProsesOrder userProfile={userProfile} />;
+        if (canProcessOrder || isSuperAdmin) ComponentToRender = <ProsesOrder userProfile={userProfile} />;
         break;
       case 'stok-masuk':
-        if (canDoGudangTransaction || isSuperAdmin) return <StokMasuk userProfile={userProfile} />;
+        if (canDoGudangTransaction || isSuperAdmin) ComponentToRender = <StokMasuk userProfile={userProfile} />;
         break;
       case 'stok-keluar':
-        if (canDoGudangTransaction || isSuperAdmin) return <StokKeluar userProfile={userProfile} />;
+        if (canDoGudangTransaction || isSuperAdmin) ComponentToRender = <StokKeluar userProfile={userProfile} />;
         break;
       case 'manajemen-retur':
-        if (canDoGudangTransaction || isDriverOrHelper || isSuperAdmin) return <ManajemenRetur userProfile={userProfile} />;
+        if (canDoGudangTransaction || isDriverOrHelper || isSuperAdmin) ComponentToRender = <ManajemenRetur userProfile={userProfile} />;
         break;
       case 'stock-opname':
-        if (canDoGudangTransaction || isSuperAdmin) return <StockOpname userProfile={userProfile} />;
+        if (canDoGudangTransaction || isSuperAdmin) ComponentToRender = <StockOpname userProfile={userProfile} />;
         break;
       case 'pengeluaran-barang':
-        if (canDoGudangTransaction || isDriverOrHelper || isSuperAdmin) return <ProsesPengeluaranGudang userProfile={userProfile} />;
+        if (canDoGudangTransaction || isDriverOrHelper || isSuperAdmin) ComponentToRender = <ProsesPengeluaranGudang userProfile={userProfile} />;
         break;
       case 'transfer-stok':
-        if (canAccessMasterData || isSuperAdmin) return <TransferStok userProfile={userProfile} />;
+        if (canAccessMasterData || isSuperAdmin) ComponentToRender = <TransferStok userProfile={userProfile} />;
         break;
       case 'faktur-tertunda':
-        return <FakturTertunda userProfile={userProfile} />;
+        ComponentToRender = <FakturTertunda userProfile={userProfile} setPage={setMainPage} />;
+        break;
       case 'proses-faktur-tertunda':
-        if (canProcessOrder || isSuperAdmin) return <KelolaFakturTertunda userProfile={userProfile} />;
+        if (canProcessOrder || isSuperAdmin) ComponentToRender = <KelolaFakturTertunda userProfile={userProfile} />;
         break;
       case 'kelola-master-barang':
-        if (canAccessMasterData || isSuperAdmin) return <KelolaMasterBarang userProfile={userProfile} />;
+        if (canAccessMasterData || isSuperAdmin) ComponentToRender = <KelolaMasterBarang userProfile={userProfile} />;
         break;
       case 'kelola-toko':
-        if (canAccessMasterData || isSuperAdmin) return <KelolaToko userProfile={userProfile} />;
+        if (canAccessMasterData || isSuperAdmin) ComponentToRender = <KelolaToko userProfile={userProfile} />;
         break;
       case 'kelola-supplier':
-        if (canAccessMasterData || isSuperAdmin) return <KelolaSupplier userProfile={userProfile} />;
+        if (canAccessMasterData || isSuperAdmin) ComponentToRender = <KelolaSupplier userProfile={userProfile} />;
         break;
       case 'kelola-kategori':
-        if (canAccessMasterData || isSuperAdmin) return <KelolaKategori userProfile={userProfile} />;
+        if (canAccessMasterData || isSuperAdmin) ComponentToRender = <KelolaKategori userProfile={userProfile} />;
         break;
       case 'laporan':
-        if (canViewLaporan || isSuperAdmin) return <Laporan userProfile={userProfile} />;
+        if (canViewLaporan || isSuperAdmin) ComponentToRender = <Laporan userProfile={userProfile} />;
         break;
       case 'laporan-kedaluwarsa':
-        if (canViewLaporan || isSuperAdmin) return <LaporanKedaluwarsa userProfile={userProfile} />;
+        if (canViewLaporan || isSuperAdmin) ComponentToRender = <LaporanKedaluwarsa userProfile={userProfile} />;
         break;
       case 'kantor-pusat':
-        if (isAdminPusat || isSuperAdmin) return <KantorPusat userProfile={userProfile} />;
+        if (isAdminPusat || isSuperAdmin) ComponentToRender = <KantorPusat userProfile={userProfile} />;
         break;
       case 'kelola-pengguna':
-        if (isSuperAdmin) return <KelolaPengguna userProfile={userProfile} />;
+        if (isSuperAdmin) ComponentToRender = <KelolaPengguna userProfile={userProfile} setPage={setMainPage} />;
         break;
       case 'kelola-depo':
-        if (isSuperAdmin) return <KelolaDepo userProfile={userProfile} />;
+        if (isSuperAdmin) ComponentToRender = <KelolaDepo userProfile={userProfile} />;
         break;
       case 'kelola-lokasi':
-        if (canAccessMasterData || isSuperAdmin) return <KelolaLokasi userProfile={userProfile} />;
+        if (canAccessMasterData || isSuperAdmin) ComponentToRender = <KelolaLokasi userProfile={userProfile} />;
         break;
       case 'alokasi-supplier':
-        if (isSuperAdmin) return <AlokasiSupplier userProfile={userProfile} />;
+        if (isSuperAdmin) ComponentToRender = <AlokasiSupplier userProfile={userProfile} setPage={setMainPage} />;
         break;
       case 'backup-restore':
-        if (isSuperAdmin) return <BackupRestore userProfile={userProfile} />;
+        if (isSuperAdmin) ComponentToRender = <BackupRestore userProfile={userProfile} />;
         break;
       case 'user-profile':
-        return <UserProfile userProfile={userProfile} />;
+        ComponentToRender = <UserProfile userProfile={userProfile} />;
+        break;
       default:
-        return <Dashboard user={userProfile} setPage={setMainPage} />;
+        ComponentToRender = <Dashboard user={userProfile} setPage={setMainPage} />;
     }
 
-    return <Dashboard user={userProfile} setPage={setMainPage} />;
+    // Jika ComponentToRender tidak ter-assign (karena hak akses), kembali ke Dashboard
+    return ComponentToRender || <Dashboard user={userProfile} setPage={setMainPage} />;
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <span className="loading loading-spinner loading-lg"></span>
-          <p className="mt-2">Memuat data pengguna...</p>
-        </div>
-      </div>
-    );
+    return <LoadingFallback />;
   }
 
   return (
@@ -196,7 +204,9 @@ function App() {
       {userProfile ? (
         <>
           <Navbar user={userProfile} setPage={setMainPage} handleLogout={handleLogout} />
-          {renderMainContent()}
+          <Suspense fallback={<LoadingFallback />}>
+            {renderMainContent()}
+          </Suspense>
         </>
       ) : (
         <main className="flex items-center justify-center h-screen">
@@ -209,3 +219,4 @@ function App() {
 }
 
 export default App;
+
