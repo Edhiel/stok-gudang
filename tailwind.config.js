@@ -2,11 +2,10 @@
 export default {
   content: [
     "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
+    "./src/**/*.{js,ts,jsx,tsx}", // <-- Pastikan baris ini ada
   ],
   theme: {
     extend: {},
   },
-  // Tambahkan DaisyUI di sini
   plugins: [require("daisyui")],
 }
