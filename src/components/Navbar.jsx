@@ -8,66 +8,68 @@ function Navbar({ user, setPage, handleLogout }) {
   const canAccessMasterData = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(user.role);
   const canViewLaporan = ['Super Admin', 'Admin Pusat', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(user.role);
   const canProcessOrder = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(user.role);
+  const isDriverOrHelper = ['Sopir', 'Helper Depo'].includes(user.role);
 
   return (
     <div className="navbar bg-primary text-primary-content sticky top-0 z-30 shadow-lg print:hidden">
       <div className="navbar-start">
-        <a className="btn btn-ghost text-xl" onClick={() => setPage('dashboard')}>
+        <a className="btn btn-ghost text-xl" onClick={() => setPage(isDriverOrHelper ? 'daftar-pengiriman' : 'dashboard')}>
           <span className="ml-2">Stok Gudang</span>
         </a>
       </div>
-      <div className="navbar-center hidden lg:flex">
-        <ul className="menu menu-horizontal px-1">
-          <li><a onClick={() => setPage('dashboard')}>Dashboard</a></li>
-          
-          {(isSuperAdmin || isAdminPusat) && (
-            <li><a onClick={() => setPage('kantor-pusat')}>Kantor Pusat</a></li>
-          )}
+      
+      {!isDriverOrHelper && (
+        <div className="navbar-center hidden lg:flex">
+            <ul className="menu menu-horizontal px-1">
+                <li><a onClick={() => setPage('dashboard')}>Dashboard</a></li>
+                {(isSuperAdmin || isAdminPusat) && (<li><a onClick={() => setPage('kantor-pusat')}>Kantor Pusat</a></li>)}
+                {(isSales || canProcessOrder) && (
+                    <li tabIndex={0}><details><summary>Orderan</summary><ul className="p-2 bg-base-100 text-base-content w-56">
+                    {(isSales || isSuperAdmin) && <li><a onClick={() => setPage('buat-order')}>Buat Order Baru</a></li>}
+                    {canProcessOrder && <li><a onClick={() => setPage('proses-order')}>Proses Order (Admin)</a></li>}
+                    </ul></details></li>
+                )}
+                {isGudangUser && (
+                    <li tabIndex={0}><details><summary>Gudang</summary><ul className="p-2 bg-base-100 text-base-content w-56">
+                    {canProcessOrder && <li><a onClick={() => setPage('pengeluaran-barang')}>Daftar Pengeluaran</a></li>}
+                    <li className="menu-title"><span>Transaksi</span></li>
+                    <li><a onClick={() => setPage('stok-masuk')}>Stok Masuk</a></li>
+                    <li><a onClick={() => setPage('stok-keluar')}>Stok Keluar</a></li>
+                    <li><a onClick={() => setPage('manajemen-retur')}>Manajemen Retur</a></li>
+                    <li><a onClick={() => setPage('stock-opname')}>Stock Opname</a></li>
+                    <li className="menu-title"><span>Antar Depo</span></li>
+                    {canAccessMasterData && <li><a onClick={() => setPage('transfer-stok')}>Transfer Stok</a></li>}
+                    <li className="menu-title"><span>Faktur</span></li>
+                    {canProcessOrder && <li><a onClick={() => setPage('faktur-tertunda')}>Buat Faktur Tertunda</a></li>}
+                    {canProcessOrder && <li><a onClick={() => setPage('proses-faktur-tertunda')}>Proses Faktur Tertunda</a></li>}
+                    </ul></details></li>
+                )}
+                {canAccessMasterData && ( <li tabIndex={0}><details><summary>Data Master</summary><ul className="p-2 bg-base-100 text-base-content w-56">
+                    <li><a onClick={() => setPage('kelola-master-barang')}>Master Barang</a></li>
+                    <li><a onClick={() => setPage('kelola-toko')}>Toko / Pelanggan</a></li>
+                    <li><a onClick={() => setPage('kelola-supplier')}>Supplier</a></li>
+                    <li><a onClick={() => setPage('kelola-kategori')}>Kategori</a></li>
+                    <li><a onClick={() => setPage('kelola-lokasi')}>Lokasi Gudang</a></li>
+                </ul></details></li> )}
+                {isSuperAdmin && ( <li tabIndex={0}><details><summary>Administrasi</summary><ul className="p-2 bg-base-100 text-base-content w-52">
+                    <li><a onClick={() => setPage('kelola-pengguna')}>Pengguna</a></li>
+                    <li><a onClick={() => setPage('kelola-depo')}>Depo</a></li>
+                    <li><a onClick={() => setPage('alokasi-supplier')}>Alokasi Supplier</a></li>
+                    <li><a onClick={() => setPage('backup-restore')}>Backup & Restore</a></li>
+                </ul></details></li> )}
+                {canViewLaporan && <li><a onClick={() => setPage('laporan')}>Laporan</a></li>}
+            </ul>
+        </div>
+      )}
 
-          {(isSales || canProcessOrder) && (
-            <li tabIndex={0}><details><summary>Orderan</summary><ul className="p-2 bg-base-100 text-base-content w-56">
-              {(isSales || isSuperAdmin) && <li><a onClick={() => setPage('buat-order')}>Buat Order Baru</a></li>}
-              {canProcessOrder && <li><a onClick={() => setPage('proses-order')}>Proses Order (Admin)</a></li>}
-            </ul></details></li>
-          )}
+      {isDriverOrHelper && (
+          <div className="navbar-center hidden lg:flex">
+              <ul className="menu menu-horizontal px-1">
+                  <li><a onClick={() => setPage('daftar-pengiriman')}>Daftar Pengiriman</a></li>
+              </ul>
+          </div>
+      )}
 
-          {isGudangUser && (
-            <li tabIndex={0}><details><summary>Gudang</summary><ul className="p-2 bg-base-100 text-base-content w-56">
-              {canProcessOrder && <li><a onClick={() => setPage('pengeluaran-barang')}>Daftar Pengeluaran</a></li>}
-              <li className="menu-title"><span>Transaksi</span></li>
-              <li><a onClick={() => setPage('stok-masuk')}>Stok Masuk</a></li>
-              <li><a onClick={() => setPage('stok-keluar')}>Stok Keluar</a></li>
-              <li><a onClick={() => setPage('manajemen-retur')}>Manajemen Retur</a></li>
-              <li><a onClick={() => setPage('stock-opname')}>Stock Opname</a></li>
-              <li className="menu-title"><span>Antar Depo</span></li>
-              {canAccessMasterData && <li><a onClick={() => setPage('transfer-stok')}>Transfer Stok</a></li>}
-              <li className="menu-title"><span>Faktur</span></li>
-              {canProcessOrder && <li><a onClick={() => setPage('faktur-tertunda')}>Buat Faktur Tertunda</a></li>}
-              {canProcessOrder && <li><a onClick={() => setPage('proses-faktur-tertunda')}>Proses Faktur Tertunda</a></li>}
-            </ul></details></li>
-          )}
-          
-          {canAccessMasterData && ( 
-            <li tabIndex={0}>
-              <details>
-                <summary>Data Master</summary>
-                <ul className="p-2 bg-base-100 text-base-content w-56">
-                  <li><a onClick={() => setPage('kelola-master-barang')}>Master Barang</a></li>
-                  {/* BARIS YANG DITAMBAHKAN */}
-                  <li><a onClick={() => setPage('kelola-toko')}>Toko / Pelanggan</a></li> 
-                  <li><a onClick={() => setPage('kelola-supplier')}>Supplier</a></li>
-                  <li><a onClick={() => setPage('kelola-kategori')}>Kategori</a></li>
-                  <li><a onClick={() => setPage('kelola-lokasi')}>Lokasi Gudang</a></li>
-                </ul>
-              </details>
-            </li> 
-          )}
-          
-          {isSuperAdmin && ( <li tabIndex={0}><details><summary>Administrasi</summary><ul className="p-2 bg-base-100 text-base-content w-52"><li><a onClick={() => setPage('kelola-pengguna')}>Pengguna</a></li><li><a onClick={() => setPage('kelola-depo')}>Depo</a></li><li><a onClick={() => setPage('alokasi-supplier')}>Alokasi Supplier</a></li><li><a onClick={() => setPage('backup-restore')}>Backup & Restore</a></li></ul></details></li> )}
-          
-          {canViewLaporan && <li><a onClick={() => setPage('laporan')}>Laporan</a></li>}
-        </ul>
-      </div>
       <div className="navbar-end">
         <div className="dropdown dropdown-end">
           <label tabIndex={0} className="btn btn-ghost btn-circle avatar">
