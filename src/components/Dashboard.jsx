@@ -7,8 +7,6 @@ import toast from 'react-hot-toast';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
-// --- OPTIMASI: DEFINISI KOMPONEN DAN DATA STATIS DIPINDAHKAN KE LUAR RENDER ---
-
 const StatCard = ({ title, value, icon, color, loading }) => (
   <div className={`card bg-white shadow-md p-4 flex flex-row items-center`}>
     <div className={`text-3xl p-3 rounded-lg ${color}`}>{icon}</div>
@@ -117,7 +115,6 @@ const Ikon = {
   PengirimanBarang: ({ color = 'currentColor' }) => <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 sm:h-12 sm:w-12" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-2 2-2-2z" /></svg>,
 };
 
-
 function Dashboard({ user, setPage }) {
   const [stats, setStats] = useState({ itemCount: 0, supplierCount: 0, orderCount: 0 });
   const [lowStockItems, setLowStockItems] = useState([]);
@@ -147,40 +144,44 @@ function Dashboard({ user, setPage }) {
     const unsubOrders = onSnapshot(ordersQuery, (snapshot) => setStats(prev => ({ ...prev, orderCount: snapshot.size })));
 
     const unsubStock = onSnapshot(stockQuery, async (stockSnapshot) => {
-        const masterSnapshot = await getDocs(masterItemsQuery);
-        const masterItems = masterSnapshot.docs.reduce((acc, doc) => ({ ...acc, [doc.id]: doc.data() }), {});
+        try {
+            const masterSnapshot = await getDocs(masterItemsQuery);
+            const masterItems = masterSnapshot.docs.reduce((acc, doc) => ({ ...acc, [doc.id]: doc.data() }), {});
 
-        const lowStock = [];
-        const expiring = [];
-        const now = new Date();
+            const lowStock = [];
+            const expiring = [];
+            const now = new Date();
 
-        stockSnapshot.forEach((doc) => {
-            const itemId = doc.id;
-            const stockItem = doc.data();
-            const masterItem = masterItems[itemId];
+            stockSnapshot.forEach((doc) => {
+                const itemId = doc.id;
+                const stockItem = doc.data();
+                const masterItem = masterItems[itemId];
 
-            if (masterItem) {
-                const minStock = masterItem.minStock || 0;
-                if (stockItem.totalStockInPcs <= minStock) {
-                    lowStock.push({ id: itemId, name: masterItem.name, totalStock: stockItem.totalStockInPcs });
-                }
+                if (masterItem) {
+                    const minStock = masterItem.minStock || 0;
+                    if (stockItem.totalStockInPcs <= minStock) {
+                        lowStock.push({ id: itemId, name: masterItem.name, totalStock: stockItem.totalStockInPcs });
+                    }
 
-                if (stockItem.batches) {
-                    Object.entries(stockItem.batches).forEach(([batchId, batch]) => {
-                        if (batch.expireDate) {
-                            const expireDate = new Date(batch.expireDate);
-                            const diffDays = (expireDate - now) / (1000 * 60 * 60 * 24);
-                            if (diffDays <= 60 && diffDays >= 0) {
-                                expiring.push({ id: itemId, itemName: masterItem.name, batchId, ...batch });
+                    if (stockItem.batches) {
+                        Object.entries(stockItem.batches).forEach(([batchId, batch]) => {
+                            if (batch.expireDate) {
+                                const expireDate = new Date(batch.expireDate);
+                                const diffDays = (expireDate - now) / (1000 * 60 * 60 * 24);
+                                if (diffDays <= 60 && diffDays >= 0) {
+                                    expiring.push({ id: itemId, itemName: masterItem.name, batchId, ...batch });
+                                }
                             }
-                        }
-                    });
+                        });
+                    }
                 }
-            }
-        });
-        setLowStockItems(lowStock);
-        setExpiringItems(expiring.sort((a, b) => new Date(a.expireDate) - new Date(b.expireDate)));
-        if (loading) setLoading(false);
+            });
+            setLowStockItems(lowStock);
+            setExpiringItems(expiring.sort((a, b) => new Date(a.expireDate) - new Date(b.expireDate)));
+            if (loading) setLoading(false);
+        } catch (error) {
+            toast.error("Gagal memproses data stok & ED.");
+        }
     });
     
     const unsubTransactions = onSnapshot(transactionsQuery, (snapshot) => {
@@ -237,7 +238,6 @@ function Dashboard({ user, setPage }) {
     },
   };
   
-  // --- OPTIMASI: Gunakan useMemo untuk menghitung menu hanya jika role user berubah ---
   const mainMenu = useMemo(() => {
       const isSuperAdmin = user?.role === 'Super Admin';
       const isAdminPusat = user?.role === 'Admin Pusat';
