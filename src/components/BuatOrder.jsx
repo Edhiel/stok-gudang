@@ -10,7 +10,6 @@ function BuatOrder({ userProfile }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   
-  // --- STATE BARU UNTUK PENCARIAN TOKO ---
   const [storeSearchTerm, setStoreSearchTerm] = useState('');
   const [filteredStores, setFilteredStores] = useState([]);
   const [selectedStore, setSelectedStore] = useState(null);
@@ -37,7 +36,9 @@ function BuatOrder({ userProfile }) {
     const itemsRef = collection(firestoreDb, 'master_items');
     
     const unsubStores = onSnapshot(storesRef, (snapshot) => {
-        setStores(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        const storeList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setStores(storeList);
+        setFilteredStores(storeList); // <-- PERUBAHAN: Tampilkan semua toko saat pertama kali dimuat
     });
     const unsubItems = onSnapshot(itemsRef, (snapshot) => {
         setItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -52,16 +53,17 @@ function BuatOrder({ userProfile }) {
     };
   }, [userProfile]);
 
-  // --- FUNGSI BARU: Menangani pencarian toko ---
   useEffect(() => {
-    if (storeSearchTerm.length > 1) {
+    // --- LOGIKA PENCARIAN YANG DISEMPURNAKAN ---
+    // Jika ada yang diketik, filter. Jika kosong, tampilkan semua.
+    if (storeSearchTerm) {
         setFilteredStores(
             stores.filter(store => 
                 store.namaToko.toLowerCase().includes(storeSearchTerm.toLowerCase())
             )
         );
     } else {
-        setFilteredStores([]);
+        setFilteredStores(stores); // <-- Kembali tampilkan semua jika pencarian kosong
     }
   }, [storeSearchTerm, stores]);
 
@@ -207,19 +209,19 @@ function BuatOrder({ userProfile }) {
               <label className="label"><span className="label-text font-bold">No. Order / PO</span></label>
               <input type="text" value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} placeholder="Masukkan No. PO dari toko" className="input input-bordered" />
             </div>
-            {/* --- PERUBAHAN DARI DROPDOWN MENJADI PENCARIAN --- */}
-            <div className="form-control dropdown">
+            <div className="form-control dropdown dropdown-hover">
               <label className="label"><span className="label-text font-bold">Cari & Pilih Toko</span></label>
               <input 
                 type="text"
                 value={storeSearchTerm}
                 onChange={(e) => {
                     setStoreSearchTerm(e.target.value);
-                    setSelectedStore(null); // Reset pilihan jika user mengetik lagi
+                    setSelectedStore(null);
                 }}
-                placeholder="Ketik nama toko..."
+                placeholder="Ketik nama toko untuk mencari..."
                 className="input input-bordered"
               />
+              {/* Tampilkan dropdown jika ada toko yang cocok ATAU jika input kosong (untuk menampilkan semua) */}
               {filteredStores.length > 0 && !selectedStore && (
                 <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">
                     {filteredStores.map(store => (
@@ -227,7 +229,6 @@ function BuatOrder({ userProfile }) {
                             <a onClick={() => {
                                 setSelectedStore(store);
                                 setStoreSearchTerm(store.namaToko);
-                                setFilteredStores([]); // Sembunyikan daftar setelah dipilih
                             }}>{store.namaToko}</a>
                         </li>
                     ))}
