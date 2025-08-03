@@ -32,7 +32,7 @@ const KantorPusat = lazy(() => import('./components/KantorPusat'));
 const TransferStok = lazy(() => import('./components/TransferStok'));
 const KelolaToko = lazy(() => import('./components/KelolaToko'));
 const KelolaLokasi = lazy(() => import('./components/KelolaLokasi'));
-const DaftarPengiriman = lazy(() => import('./components/DaftarPengiriman'));
+const TugasKunjungan = lazy(() => import('./components/TugasKunjungan')); // <-- Ganti DaftarPengiriman
 
 const LoadingFallback = () => (
   <div className="flex justify-center items-center h-screen">
@@ -112,14 +112,14 @@ function App() {
     const isDriverOrHelper = ['Sopir', 'Helper Depo'].includes(userProfile.role);
 
     if (isDriverOrHelper && mainPage === 'dashboard') {
-      return <DaftarPengiriman userProfile={userProfile} />;
+      return <TugasKunjungan userProfile={userProfile} />;
     }
     
     let ComponentToRender;
 
     switch (mainPage) {
-      case 'daftar-pengiriman':
-        if(isDriverOrHelper) ComponentToRender = <DaftarPengiriman userProfile={userProfile} />;
+      case 'tugas-kunjungan': // <-- Tambah rute baru
+        if(isDriverOrHelper) ComponentToRender = <TugasKunjungan userProfile={userProfile} />;
         break;
       case 'buat-order':
         if (isSales || isSuperAdmin) ComponentToRender = <BuatOrder userProfile={userProfile} />;
