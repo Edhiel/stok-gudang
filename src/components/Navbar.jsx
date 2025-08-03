@@ -1,5 +1,5 @@
 import React from 'react';
-import NotificationBell from './NotificationBell'; // Pastikan NotificationBell diimpor
+import NotificationBell from './NotificationBell';
 
 function Navbar({ user, setPage, handleLogout }) {
   const isSuperAdmin = user.role === 'Super Admin';
@@ -14,12 +14,11 @@ function Navbar({ user, setPage, handleLogout }) {
   return (
     <div className="navbar bg-primary text-primary-content sticky top-0 z-30 shadow-lg print:hidden">
       <div className="navbar-start">
-        <a className="btn btn-ghost text-xl" onClick={() => setPage(isDriverOrHelper ? 'daftar-pengiriman' : 'dashboard')}>
+        <a className="btn btn-ghost text-xl" onClick={() => setPage(isDriverOrHelper ? 'tugas-kunjungan' : 'dashboard')}>
           <span className="ml-2">Stok Gudang</span>
         </a>
       </div>
       
-      {/* TAMPILKAN MENU LENGKAP HANYA JIKA BUKAN SOPIR/HELPER */}
       {!isDriverOrHelper && (
         <div className="navbar-center hidden lg:flex">
             <ul className="menu menu-horizontal px-1">
@@ -64,18 +63,16 @@ function Navbar({ user, setPage, handleLogout }) {
         </div>
       )}
 
-      {/* TAMPILKAN MENU SIMPLE UNTUK SOPIR/HELPER */}
       {isDriverOrHelper && (
           <div className="navbar-center hidden lg:flex">
               <ul className="menu menu-horizontal px-1">
-                  <li><a onClick={() => setPage('daftar-pengiriman')}>Daftar Pengiriman</a></li>
+                  <li><a onClick={() => setPage('tugas-kunjungan')}>Tugas Kunjungan Hari Ini</a></li>
               </ul>
           </div>
       )}
 
       <div className="navbar-end">
         <NotificationBell userProfile={user} setPage={setPage} />
-
         <div className="dropdown dropdown-end">
           <label tabIndex={0} className="btn btn-ghost btn-circle avatar">
             <div className="w-10 rounded-full bg-base-300 flex items-center justify-center">
