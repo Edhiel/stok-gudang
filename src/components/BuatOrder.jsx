@@ -8,9 +8,14 @@ import toast from 'react-hot-toast';
 function BuatOrder({ userProfile }) {
   const [stores, setStores] = useState([]);
   const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true); // <-- STATE BARU UNTUK LOADING
-  const [searchTerm, setSearchTerm] = useState('');
+  const [loading, setLoading] = useState(true);
+  
+  // --- STATE BARU UNTUK PENCARIAN TOKO ---
+  const [storeSearchTerm, setStoreSearchTerm] = useState('');
+  const [filteredStores, setFilteredStores] = useState([]);
   const [selectedStore, setSelectedStore] = useState(null);
+
+  const [itemSearchTerm, setItemSearchTerm] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [dosQty, setDosQty] = useState(0);
   const [packQty, setPackQty] = useState(0);
@@ -21,9 +26,7 @@ function BuatOrder({ userProfile }) {
   const [showScanner, setShowScanner] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // --- PENINGKATAN: useEffect dibuat lebih aman ---
   useEffect(() => {
-    // Jangan jalankan apapun jika userProfile atau depotId belum siap
     if (!userProfile?.depotId) {
         setLoading(false);
         return;
@@ -38,7 +41,7 @@ function BuatOrder({ userProfile }) {
     });
     const unsubItems = onSnapshot(itemsRef, (snapshot) => {
         setItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        setLoading(false); // Selesai loading setelah item dimuat
+        setLoading(false);
     });
     
     checkPendingOrders();
@@ -49,39 +52,129 @@ function BuatOrder({ userProfile }) {
     };
   }, [userProfile]);
 
+  // --- FUNGSI BARU: Menangani pencarian toko ---
+  useEffect(() => {
+    if (storeSearchTerm.length > 1) {
+        setFilteredStores(
+            stores.filter(store => 
+                store.namaToko.toLowerCase().includes(storeSearchTerm.toLowerCase())
+            )
+        );
+    } else {
+        setFilteredStores([]);
+    }
+  }, [storeSearchTerm, stores]);
+
   const syncOfflineOrders = async (ordersToSync) => {
-    // ... (fungsi ini tidak berubah)
+    let successCount = 0;
+    for (const order of ordersToSync) {
+      try {
+        await addDoc(collection(firestoreDb, `depots/${order.depotId}/salesOrders`), order);
+        await removeOrderFromQueue(order.localId);
+        successCount++;
+      } catch (error) {
+        toast.error(`Gagal sinkronisasi order: ${order.orderNumber}`);
+        break;
+      }
+    }
+    if (successCount > 0) {
+      toast.success(`${successCount} order berhasil disinkronkan.`);
+    }
+    checkPendingOrders();
   };
 
   const checkPendingOrders = async () => {
-    // ... (fungsi ini tidak berubah)
+    const pending = await getQueuedOrders();
+    setPendingSyncCount(pending.length);
+    if (pending.length > 0 && navigator.onLine) {
+      toast.loading(`Menyinkronkan ${pending.length} order...`, { id: 'sync-toast' });
+      await syncOfflineOrders(pending);
+      toast.dismiss('sync-toast');
+    }
   };
 
   const handleSelectItem = (item) => {
-    // ... (fungsi ini tidak berubah)
+    setSelectedItem(item);
+    setItemSearchTerm(item.name);
   };
 
   const handleAddItemToList = () => {
-    // ... (fungsi ini tidak berubah)
+    if (!selectedItem) return toast.error("Pilih barang terlebih dahulu.");
+    const totalPcs = totalPcsForItem({ dos: dosQty, pack: packQty, pcs: pcsQty });
+    if (totalPcs <= 0) return toast.error("Masukkan jumlah yang valid.");
+
+    setTransactionItems([...transactionItems, {
+      id: selectedItem.id,
+      name: selectedItem.name,
+      quantityInPcs: totalPcs,
+      displayQty: `${dosQty}.${packQty}.${pcsQty}`,
+      conversions: selectedItem.conversions
+    }]);
+    
+    setSelectedItem(null);
+    setItemSearchTerm('');
+    setDosQty(0); setPackQty(0); setPcsQty(0);
   };
 
   const handleRemoveItem = (index) => {
-    // ... (fungsi ini tidak berubah)
+    setTransactionItems(transactionItems.filter((_, i) => i !== index));
   };
   
   const handleSaveOrder = async () => {
-    // ... (fungsi ini tidak berubah)
+    if (!selectedStore || transactionItems.length === 0) {
+      return toast.error("Pilih toko dan tambahkan minimal satu barang.");
+    }
+    setIsSubmitting(true);
+
+    const orderData = {
+      orderNumber: orderNumber || `SO-${Date.now()}`,
+      storeId: selectedStore.id,
+      storeName: selectedStore.namaToko,
+      items: transactionItems,
+      status: 'Menunggu Approval Admin',
+      createdAt: serverTimestamp(),
+      salesName: userProfile.fullName,
+      salesId: userProfile.uid,
+      depotId: userProfile.depotId
+    };
+
+    if (navigator.onLine) {
+      try {
+        await addDoc(collection(firestoreDb, `depots/${userProfile.depotId}/salesOrders`), orderData);
+        toast.success("Order berhasil disimpan!");
+        setTransactionItems([]);
+        setOrderNumber('');
+        setSelectedStore(null);
+        setStoreSearchTerm('');
+      } catch (error) {
+        toast.error("Gagal menyimpan order: " + error.message);
+      }
+    } else {
+      const success = await addOrderToQueue(orderData);
+      if (success) {
+        toast.success("Koneksi offline. Order disimpan lokal.");
+        setTransactionItems([]);
+        setOrderNumber('');
+        setSelectedStore(null);
+        setStoreSearchTerm('');
+      } else {
+        toast.error("Gagal menyimpan order di penyimpanan lokal.");
+      }
+    }
+    setIsSubmitting(false);
   };
 
-  const totalPcsForItem = (item) => {
-    // ... (fungsi ini tidak berubah)
+  const totalPcsForItem = ({ dos, pack, pcs }) => {
+    if (!selectedItem) return 0;
+    const dosInPcs = selectedItem.conversions?.Dos?.inPcs || 1;
+    const packInPcs = selectedItem.conversions?.Pack?.inPcs || 1;
+    return (Number(dos) * dosInPcs) + (Number(pack) * packInPcs) + Number(pcs);
   };
 
-  const filteredItems = searchTerm.length > 1 
-    ? items.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
+  const filteredItems = itemSearchTerm.length > 1 
+    ? items.filter(item => item.name.toLowerCase().includes(itemSearchTerm.toLowerCase()))
     : [];
 
-  // --- TAMPILKAN LOADING JIKA DATA BELUM SIAP ---
   if (loading) {
     return <div className="p-8 text-center"><span className="loading loading-spinner loading-lg"></span></div>;
   }
@@ -92,11 +185,8 @@ function BuatOrder({ userProfile }) {
         <CameraBarcodeScanner
           onScan={(scannedBarcode) => {
             const foundItem = items.find(item => item.barcodePcs === scannedBarcode || item.barcodeDos === scannedBarcode);
-            if (foundItem) {
-              handleSelectItem(foundItem);
-            } else {
-              toast.error("Barang tidak ditemukan.");
-            }
+            if (foundItem) handleSelectItem(foundItem);
+            else toast.error("Barang tidak ditemukan.");
             setShowScanner(false);
           }}
           onClose={() => setShowScanner(false)}
@@ -117,12 +207,32 @@ function BuatOrder({ userProfile }) {
               <label className="label"><span className="label-text font-bold">No. Order / PO</span></label>
               <input type="text" value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} placeholder="Masukkan No. PO dari toko" className="input input-bordered" />
             </div>
-            <div className="form-control">
-              <label className="label"><span className="label-text font-bold">Pilih Toko</span></label>
-              <select className="select select-bordered" onChange={(e) => setSelectedStore(JSON.parse(e.target.value))} defaultValue="">
-                <option value="" disabled>Pilih Toko Tujuan</option>
-                {stores.map(store => <option key={store.id} value={JSON.stringify(store)}>{store.namaToko}</option>)}
-              </select>
+            {/* --- PERUBAHAN DARI DROPDOWN MENJADI PENCARIAN --- */}
+            <div className="form-control dropdown">
+              <label className="label"><span className="label-text font-bold">Cari & Pilih Toko</span></label>
+              <input 
+                type="text"
+                value={storeSearchTerm}
+                onChange={(e) => {
+                    setStoreSearchTerm(e.target.value);
+                    setSelectedStore(null); // Reset pilihan jika user mengetik lagi
+                }}
+                placeholder="Ketik nama toko..."
+                className="input input-bordered"
+              />
+              {filteredStores.length > 0 && !selectedStore && (
+                <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">
+                    {filteredStores.map(store => (
+                        <li key={store.id}>
+                            <a onClick={() => {
+                                setSelectedStore(store);
+                                setStoreSearchTerm(store.namaToko);
+                                setFilteredStores([]); // Sembunyikan daftar setelah dipilih
+                            }}>{store.namaToko}</a>
+                        </li>
+                    ))}
+                </ul>
+              )}
             </div>
           </div>
         </div>
@@ -137,8 +247,8 @@ function BuatOrder({ userProfile }) {
                 type="text"
                 placeholder={selectedStore ? "Ketik nama barang..." : "Pilih toko terlebih dahulu"}
                 className="input input-bordered join-item w-full"
-                value={searchTerm}
-                onChange={(e) => { setSearchTerm(e.target.value); setSelectedItem(null); }}
+                value={itemSearchTerm}
+                onChange={(e) => { setItemSearchTerm(e.target.value); setSelectedItem(null); }}
                 disabled={!selectedStore}
               />
               <button type="button" onClick={() => setShowScanner(true)} className="btn btn-primary join-item" disabled={!selectedStore}>Scan</button>
