@@ -12,9 +12,12 @@ function KelolaFakturTertunda({ userProfile }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!userProfile?.depotId) return;
+    if (!userProfile?.depotId) {
+        setLoading(false);
+        return;
+    };
     
-    // Mengambil data dari koleksi 'tandaTerima'
+    // Mengambil data dari koleksi 'tandaTerima' yang baru
     const receiptsRef = collection(firestoreDb, `depots/${userProfile.depotId}/tandaTerima`);
     const q = query(receiptsRef, where('status', '==', 'pending'));
     
@@ -22,6 +25,9 @@ function KelolaFakturTertunda({ userProfile }) {
       const receiptList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setPendingReceipts(receiptList.sort((a,b) => a.createdAt.toMillis() - b.createdAt.toMillis()));
       setLoading(false);
+    }, (error) => {
+        toast.error("Gagal memuat data Tanda Terima.");
+        setLoading(false);
     });
 
     return () => unsubscribe();
@@ -37,13 +43,12 @@ function KelolaFakturTertunda({ userProfile }) {
     if (!invoiceNumber) {
       return toast.error("Nomor faktur resmi wajib diisi.");
     }
-    if (!window.confirm("Anda yakin ingin memproses Tanda Terima ini? Stok akan dipotong secara permanen.")) return;
+    if (!window.confirm("Anda yakin ingin memproses Tanda Terima ini? Stok akan dipotong secara permanen dari gudang.")) return;
 
     setIsSubmitting(true);
     toast.loading("Memproses faktur dan memotong stok...", { id: "process-receipt" });
 
     try {
-      // --- DI SINI LOGIKA PEMOTONGAN STOK DIJALANKAN ---
       await runTransaction(firestoreDb, async (transaction) => {
         // 1. Memotong stok untuk setiap item di dalam Tanda Terima
         for (const item of selectedReceipt.items) {
@@ -70,7 +75,7 @@ function KelolaFakturTertunda({ userProfile }) {
         });
       });
 
-      // 3. (Opsional) Buat log transaksi "Stok Keluar"
+      // 3. Buat log transaksi "Stok Keluar" untuk pelacakan
       const transactionsRef = collection(firestoreDb, `depots/${userProfile.depotId}/transactions`);
       await addDoc(transactionsRef, {
           type: 'Stok Keluar (Faktur Tertunda)',
