@@ -36,9 +36,7 @@ function BuatOrder({ userProfile }) {
     const itemsRef = collection(firestoreDb, 'master_items');
     
     const unsubStores = onSnapshot(storesRef, (snapshot) => {
-        const storeList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setStores(storeList);
-        setFilteredStores(storeList); // <-- PERUBAHAN: Tampilkan semua toko saat pertama kali dimuat
+        setStores(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
     const unsubItems = onSnapshot(itemsRef, (snapshot) => {
         setItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -54,16 +52,15 @@ function BuatOrder({ userProfile }) {
   }, [userProfile]);
 
   useEffect(() => {
-    // --- LOGIKA PENCARIAN YANG DISEMPURNAKAN ---
-    // Jika ada yang diketik, filter. Jika kosong, tampilkan semua.
-    if (storeSearchTerm) {
+    // --- LOGIKA BARU: Tampilkan daftar HANYA JIKA user mengetik ---
+    if (storeSearchTerm.length > 1) {
         setFilteredStores(
             stores.filter(store => 
                 store.namaToko.toLowerCase().includes(storeSearchTerm.toLowerCase())
             )
         );
     } else {
-        setFilteredStores(stores); // <-- Kembali tampilkan semua jika pencarian kosong
+        setFilteredStores([]); // Kosongkan daftar jika input pendek atau kosong
     }
   }, [storeSearchTerm, stores]);
 
@@ -79,9 +76,7 @@ function BuatOrder({ userProfile }) {
         break;
       }
     }
-    if (successCount > 0) {
-      toast.success(`${successCount} order berhasil disinkronkan.`);
-    }
+    if (successCount > 0) toast.success(`${successCount} order berhasil disinkronkan.`);
     checkPendingOrders();
   };
 
@@ -106,15 +101,11 @@ function BuatOrder({ userProfile }) {
     if (totalPcs <= 0) return toast.error("Masukkan jumlah yang valid.");
 
     setTransactionItems([...transactionItems, {
-      id: selectedItem.id,
-      name: selectedItem.name,
-      quantityInPcs: totalPcs,
-      displayQty: `${dosQty}.${packQty}.${pcsQty}`,
-      conversions: selectedItem.conversions
+      id: selectedItem.id, name: selectedItem.name, quantityInPcs: totalPcs,
+      displayQty: `${dosQty}.${packQty}.${pcsQty}`, conversions: selectedItem.conversions
     }]);
     
-    setSelectedItem(null);
-    setItemSearchTerm('');
+    setSelectedItem(null); setItemSearchTerm('');
     setDosQty(0); setPackQty(0); setPcsQty(0);
   };
 
@@ -129,14 +120,9 @@ function BuatOrder({ userProfile }) {
     setIsSubmitting(true);
 
     const orderData = {
-      orderNumber: orderNumber || `SO-${Date.now()}`,
-      storeId: selectedStore.id,
-      storeName: selectedStore.namaToko,
-      items: transactionItems,
-      status: 'Menunggu Approval Admin',
-      createdAt: serverTimestamp(),
-      salesName: userProfile.fullName,
-      salesId: userProfile.uid,
+      orderNumber: orderNumber || `SO-${Date.now()}`, storeId: selectedStore.id,
+      storeName: selectedStore.namaToko, items: transactionItems, status: 'Menunggu Approval Admin',
+      createdAt: serverTimestamp(), salesName: userProfile.fullName, salesId: userProfile.uid,
       depotId: userProfile.depotId
     };
 
@@ -144,10 +130,7 @@ function BuatOrder({ userProfile }) {
       try {
         await addDoc(collection(firestoreDb, `depots/${userProfile.depotId}/salesOrders`), orderData);
         toast.success("Order berhasil disimpan!");
-        setTransactionItems([]);
-        setOrderNumber('');
-        setSelectedStore(null);
-        setStoreSearchTerm('');
+        setTransactionItems([]); setOrderNumber(''); setSelectedStore(null); setStoreSearchTerm('');
       } catch (error) {
         toast.error("Gagal menyimpan order: " + error.message);
       }
@@ -155,10 +138,7 @@ function BuatOrder({ userProfile }) {
       const success = await addOrderToQueue(orderData);
       if (success) {
         toast.success("Koneksi offline. Order disimpan lokal.");
-        setTransactionItems([]);
-        setOrderNumber('');
-        setSelectedStore(null);
-        setStoreSearchTerm('');
+        setTransactionItems([]); setOrderNumber(''); setSelectedStore(null); setStoreSearchTerm('');
       } else {
         toast.error("Gagal menyimpan order di penyimpanan lokal.");
       }
@@ -183,45 +163,34 @@ function BuatOrder({ userProfile }) {
 
   return (
     <>
-      {showScanner && (
-        <CameraBarcodeScanner
-          onScan={(scannedBarcode) => {
+      {showScanner && ( <CameraBarcodeScanner onScan={(scannedBarcode) => {
             const foundItem = items.find(item => item.barcodePcs === scannedBarcode || item.barcodeDos === scannedBarcode);
-            if (foundItem) handleSelectItem(foundItem);
-            else toast.error("Barang tidak ditemukan.");
+            if (foundItem) handleSelectItem(foundItem); else toast.error("Barang tidak ditemukan.");
             setShowScanner(false);
-          }}
-          onClose={() => setShowScanner(false)}
-        />
-      )}
+          }} onClose={() => setShowScanner(false)} /> )}
       <div className="p-4 md:p-8">
         <h1 className="text-3xl font-bold mb-6">Buat Order Penjualan Baru</h1>
-        {pendingSyncCount > 0 && (
-          <div role="alert" className="alert alert-info mb-4">
+        {pendingSyncCount > 0 && ( <div role="alert" className="alert alert-info mb-4">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-current shrink-0 w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
             <span>Ada {pendingSyncCount} order yang menunggu untuk disinkronkan.</span>
-          </div>
-        )}
-
+          </div> )}
         <div className="card bg-white shadow-lg p-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="form-control">
               <label className="label"><span className="label-text font-bold">No. Order / PO</span></label>
               <input type="text" value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} placeholder="Masukkan No. PO dari toko" className="input input-bordered" />
             </div>
-            <div className="form-control dropdown dropdown-hover">
+            <div className="form-control dropdown">
               <label className="label"><span className="label-text font-bold">Cari & Pilih Toko</span></label>
               <input 
-                type="text"
-                value={storeSearchTerm}
+                type="text" value={storeSearchTerm}
                 onChange={(e) => {
                     setStoreSearchTerm(e.target.value);
                     setSelectedStore(null);
                 }}
-                placeholder="Ketik nama toko untuk mencari..."
+                placeholder="Ketik min. 2 huruf nama toko..."
                 className="input input-bordered"
               />
-              {/* Tampilkan dropdown jika ada toko yang cocok ATAU jika input kosong (untuk menampilkan semua) */}
               {filteredStores.length > 0 && !selectedStore && (
                 <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">
                     {filteredStores.map(store => (
@@ -237,21 +206,14 @@ function BuatOrder({ userProfile }) {
             </div>
           </div>
         </div>
-
         <div className="divider my-6">Detail Barang</div>
-
         <div className="card bg-white shadow-lg p-6">
           <div className="form-control dropdown">
             <label className="label"><span className="label-text">Scan atau Cari Barang</span></label>
             <div className="join w-full">
-              <input
-                type="text"
-                placeholder={selectedStore ? "Ketik nama barang..." : "Pilih toko terlebih dahulu"}
-                className="input input-bordered join-item w-full"
-                value={itemSearchTerm}
-                onChange={(e) => { setItemSearchTerm(e.target.value); setSelectedItem(null); }}
-                disabled={!selectedStore}
-              />
+              <input type="text" placeholder={selectedStore ? "Ketik nama barang..." : "Pilih toko terlebih dahulu"}
+                className="input input-bordered join-item w-full" value={itemSearchTerm}
+                onChange={(e) => { setItemSearchTerm(e.target.value); setSelectedItem(null); }} disabled={!selectedStore} />
               <button type="button" onClick={() => setShowScanner(true)} className="btn btn-primary join-item" disabled={!selectedStore}>Scan</button>
             </div>
             {filteredItems.length > 0 && !selectedItem && (
@@ -272,37 +234,22 @@ function BuatOrder({ userProfile }) {
             </div>
           )}
         </div>
-        
         <div className="mt-6">
             <h3 className="text-xl font-bold mb-2">Daftar Orderan</h3>
             <div className="overflow-x-auto bg-white rounded-lg shadow">
               <table className="table w-full">
-                <thead>
-                  <tr>
-                    <th>Nama Barang</th>
-                    <th>Jumlah</th>
-                    <th>Aksi</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {transactionItems.map((item, index) => (
-                    <tr key={index}>
-                      <td>{item.name}</td>
-                      <td>{item.displayQty}</td>
+                <thead><tr><th>Nama Barang</th><th>Jumlah</th><th>Aksi</th></tr></thead>
+                <tbody>{transactionItems.map((item, index) => (
+                    <tr key={index}><td>{item.name}</td><td>{item.displayQty}</td>
                       <td><button onClick={() => handleRemoveItem(index)} className="btn btn-xs btn-error">Hapus</button></td>
-                    </tr>
-                  ))}
+                    </tr>))}
                 </tbody>
               </table>
             </div>
         </div>
-        
         <div className="mt-6 flex justify-end">
-            <button 
-                onClick={handleSaveOrder} 
-                className="btn btn-success btn-lg" 
-                disabled={!selectedStore || transactionItems.length === 0 || isSubmitting}
-            >
+            <button onClick={handleSaveOrder} className="btn btn-success btn-lg" 
+                disabled={!selectedStore || transactionItems.length === 0 || isSubmitting}>
                 {isSubmitting ? <span className="loading loading-spinner"></span> : "Simpan Order"}
             </button>
         </div>
