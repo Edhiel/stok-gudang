@@ -1,288 +1,239 @@
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, getDoc, doc, runTransaction, addDoc, serverTimestamp, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, doc, getDoc, runTransaction, addDoc, serverTimestamp } from 'firebase/firestore';
 import { firestoreDb } from '../firebaseConfig';
-import CameraBarcodeScanner from './CameraBarcodeScanner';
 import toast from 'react-hot-toast';
+import CameraBarcodeScanner from './CameraBarcodeScanner';
 
 function StokKeluar({ userProfile }) {
+  const [items, setItems] = useState([]);
+  const [stores, setStores] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
   const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [storeId, setStoreId] = useState(''); // Ganti storeName jadi storeId
   const [driverName, setDriverName] = useState('');
   const [licensePlate, setLicensePlate] = useState('');
-
-  const [tokoList, setTokoList] = useState([]);
-  const [masterItems, setMasterItems] = useState({});
-  const [stockData, setStockData] = useState({});
-
-  const [tokoSearchTerm, setTokoSearchTerm] = useState('');
-  const [isTokoSelected, setIsTokoSelected] = useState(false);
   
-  const [searchTerm, setSearchTerm] = useState('');
+  const [storeSearchTerm, setStoreSearchTerm] = useState('');
+  const [filteredStores, setFilteredStores] = useState([]);
+  const [selectedStore, setSelectedStore] = useState(null);
+
+  const [itemSearchTerm, setItemSearchTerm] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
-  const [itemStock, setItemStock] = useState(0);
+  const [transactionItems, setTransactionItems] = useState([]);
   const [dosQty, setDosQty] = useState(0);
   const [packQty, setPackQty] = useState(0);
   const [pcsQty, setPcsQty] = useState(0);
-  const [transactionItems, setTransactionItems] = useState([]);
   const [showScanner, setShowScanner] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!userProfile.depotId) return;
-
-    // Ambil data Toko & Master Barang dari Firestore
-    const unsubToko = onSnapshot(collection(firestoreDb, 'master_toko'), (snap) => {
-        setTokoList(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-    getDocs(collection(firestoreDb, 'master_items')).then(snap => {
-        const items = snap.docs.reduce((acc, doc) => {
-            acc[doc.id] = { id: doc.id, ...doc.data() };
-            return acc;
-        }, {});
-        setMasterItems(items);
-    });
-
-    // Ambil data Stok dari Firestore
-    const unsubStock = onSnapshot(collection(firestoreDb, `depots/${userProfile.depotId}/stock`), (snap) => {
-        const stocks = snap.docs.reduce((acc, doc) => {
-            acc[doc.id] = doc.data().totalStockInPcs || 0;
-            return acc;
-        }, {});
-        setStockData(stocks);
-    });
-
-    return () => {
-        unsubToko();
-        unsubStock();
-    };
-  }, [userProfile.depotId]);
-
-  const handleBarcodeDetected = (scannedBarcode) => {
-    const availableItems = Object.keys(stockData)
-        .filter(id => stockData[id] > 0)
-        .map(id => masterItems[id])
-        .filter(Boolean); // Hapus item yg mungkin belum termuat di masterItems
-    const foundItem = availableItems.find(item => item.barcodePcs === scannedBarcode || item.barcodeDos === scannedBarcode);
-    
-    if (foundItem) {
-      handleSelectItem(foundItem);
-    } else {
-      toast.error("Barang tidak ditemukan atau stok kosong.");
-    }
-    setShowScanner(false);
-  };
-
-  const handleSelectItem = (item) => {
-    setSelectedItem(item);
-    setSearchTerm(item.name);
-    setItemStock(stockData[item.id] || 0);
-  };
-  
-  const handleSelectToko = (toko) => {
-      setStoreId(toko.id);
-      setTokoSearchTerm(toko.namaToko);
-      setIsTokoSelected(true);
-  };
-
-  const handleAddItemToList = (isBonus = false) => {
-    if (!selectedItem) { toast.error("Pilih barang dulu."); return; }
-    
-    const dosInPcs = selectedItem.conversions?.Dos?.inPcs || 1;
-    const packInPcs = selectedItem.conversions?.Pack?.inPcs || 1;
-    const totalPcs = (Number(dosQty) * dosInPcs) + (Number(packQty) * packInPcs) + (Number(pcsQty));
-
-    if (totalPcs <= 0) { toast.error("Masukkan jumlah yang valid."); return; }
-    if (totalPcs > itemStock) {
-        toast.error(`Stok tidak cukup! Sisa stok hanya ${itemStock} Pcs.`);
+    if (!userProfile?.depotId) {
+        setLoading(false);
         return;
     }
-    const newItem = {
-      id: selectedItem.id, name: selectedItem.name, quantityInPcs: totalPcs,
-      displayQty: `${dosQty}.${packQty}.${pcsQty}`, isBonus: isBonus
+    const itemsRef = collection(firestoreDb, 'master_items');
+    const storesRef = collection(firestoreDb, 'master_toko');
+
+    const unsubItems = onSnapshot(itemsRef, (snapshot) => {
+        setItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    const unsubStores = onSnapshot(storesRef, (snapshot) => {
+        setStores(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    
+    setLoading(false);
+    return () => {
+        unsubItems();
+        unsubStores();
     };
-    setTransactionItems([...transactionItems, newItem]);
-    setSelectedItem(null); setSearchTerm(''); setDosQty(0); setPackQty(0); setPcsQty(0);
+  }, [userProfile]);
+
+  useEffect(() => {
+    if (storeSearchTerm.length > 1) {
+        setFilteredStores(stores.filter(s => s.namaToko.toLowerCase().includes(storeSearchTerm.toLowerCase())));
+    } else {
+        setFilteredStores([]);
+    }
+  }, [storeSearchTerm, stores]);
+
+  const handleAddItem = () => {
+    if (!selectedItem) return toast.error("Pilih barang terlebih dahulu.");
+    const totalPcs = (Number(dosQty) * (selectedItem.conversions?.Dos?.inPcs || 1)) + 
+                     (Number(packQty) * (selectedItem.conversions?.Pack?.inPcs || 1)) + 
+                     Number(pcsQty);
+    if (totalPcs <= 0) return toast.error("Masukkan jumlah yang valid.");
+
+    setTransactionItems([...transactionItems, {
+        id: selectedItem.id,
+        name: selectedItem.name,
+        quantityInPcs: totalPcs,
+        displayQty: `${dosQty}.${packQty}.${pcsQty}`
+    }]);
+
+    setItemSearchTerm('');
+    setSelectedItem(null);
+    setDosQty(0); setPackQty(0); setPcsQty(0);
   };
 
-  const handleRemoveFromList = (indexToRemove) => {
-    setTransactionItems(transactionItems.filter((_, index) => index !== indexToRemove));
+  const handleRemoveItem = (index) => {
+    setTransactionItems(transactionItems.filter((_, i) => i !== index));
   };
   
   const handleSaveTransaction = async () => {
-    if (!invoiceNumber || !storeId || transactionItems.length === 0) {
-      return toast.error("No. Faktur, Nama Toko, dan minimal 1 barang wajib diisi.");
+    if (!selectedStore || transactionItems.length === 0) {
+        return toast.error("Pilih toko tujuan dan tambahkan minimal satu barang.");
     }
+    if (!window.confirm("Anda yakin ingin menyimpan transaksi ini? Stok akan langsung dipotong.")) return;
     setIsSubmitting(true);
-    toast.loading('Memproses transaksi...', { id: 'stok-keluar' });
+    toast.loading("Memproses stok keluar...", { id: "stok-keluar-toast" });
 
     try {
-      const allDeductions = [];
-      const selectedToko = tokoList.find(t => t.id === storeId);
-
-      for (const transItem of transactionItems) {
-        const stockDocRef = doc(firestoreDb, `depots/${userProfile.depotId}/stock/${transItem.id}`);
-        
+        const pickingPlan = [];
         await runTransaction(firestoreDb, async (transaction) => {
-            const stockDoc = await transaction.get(stockDocRef);
-            if (!stockDoc.exists() || !stockDoc.data().batches || stockDoc.data().totalStockInPcs < transItem.quantityInPcs) {
-                throw new Error(`Stok untuk ${transItem.name} tidak mencukupi.`);
-            }
-
-            let currentStockData = stockDoc.data();
-            const sortedBatches = Object.keys(currentStockData.batches)
-                .map(key => ({ batchId: key, ...currentStockData.batches[key] }))
-                .sort((a, b) => new Date(a.expireDate) - new Date(b.expireDate));
-          
-            let quantityToDeduct = transItem.quantityInPcs;
-            let deductionsForThisItem = [];
-
-            for (const batch of sortedBatches) {
-                if (quantityToDeduct <= 0) break;
-                const amountToTake = Math.min(quantityToDeduct, batch.quantity);
+            for (const item of transactionItems) {
+                const stockDocRef = doc(firestoreDb, `depots/${userProfile.depotId}/stock/${item.id}`);
+                const stockDoc = await transaction.get(stockDocRef);
+                if (!stockDoc.exists()) throw new Error(`Stok untuk ${item.name} tidak ditemukan.`);
                 
-                const batchInDb = currentStockData.batches[batch.batchId];
-                if (batchInDb) {
-                    batchInDb.quantity -= amountToTake;
-                    if (batchInDb.quantity <= 0) delete currentStockData.batches[batch.batchId];
+                let currentStockData = stockDoc.data();
+                if ((currentStockData.totalStockInPcs || 0) < item.quantityInPcs) {
+                    throw new Error(`Stok untuk ${item.name} tidak cukup.`);
                 }
-                quantityToDeduct -= amountToTake;
-                
-                deductionsForThisItem.push({
-                    batchId: batch.batchId, deductedQty: amountToTake, expireDate: batch.expireDate
-                });
-            }
 
-            if (quantityToDeduct > 0) {
-                throw new Error(`Kalkulasi stok FEFO gagal untuk ${transItem.name}.`);
+                currentStockData.totalStockInPcs -= item.quantityInPcs;
+                transaction.set(stockDocRef, currentStockData);
             }
-          
-            currentStockData.totalStockInPcs -= transItem.quantityInPcs;
-            transaction.set(stockDocRef, currentStockData);
-            allDeductions.push({itemId: transItem.id, name: transItem.name, deductions: deductionsForThisItem});
         });
-      }
-
-      const transactionsRef = collection(firestoreDb, `depots/${userProfile.depotId}/transactions`);
-      await addDoc(transactionsRef, {
-        type: 'Stok Keluar (Manual)', 
-        invoiceNumber, storeId, storeName: selectedToko.namaToko, driverName, licensePlate, 
-        items: transactionItems,
-        deductionDetails: allDeductions,
-        user: userProfile.fullName, 
-        timestamp: serverTimestamp()
-      });
-
-      toast.dismiss('stok-keluar');
-      toast.success("Transaksi stok keluar berhasil disimpan!");
-      setInvoiceNumber(''); setStoreId(''); setDriverName(''); setLicensePlate('');
-      setTransactionItems([]); setTokoSearchTerm(''); setIsTokoSelected(false);
-    } catch (err) {
-      toast.dismiss('stok-keluar');
-      toast.error(`Gagal menyimpan: ${err.message}`);
-      console.error(err);
+        
+        const transactionsRef = collection(firestoreDb, `depots/${userProfile.depotId}/transactions`);
+        await addDoc(transactionsRef, {
+            type: 'Stok Keluar (Manual)',
+            invoiceNumber: invoiceNumber,
+            storeName: selectedStore.namaToko,
+            storeId: selectedStore.id,
+            driverName: driverName,
+            items: transactionItems,
+            user: userProfile.fullName,
+            timestamp: serverTimestamp()
+        });
+        
+        toast.dismiss("stok-keluar-toast");
+        toast.success("Transaksi stok keluar berhasil disimpan!");
+        setTransactionItems([]);
+        setSelectedStore(null);
+        setStoreSearchTerm('');
+        setInvoiceNumber('');
+        setDriverName('');
+        setLicensePlate('');
+    } catch (error) {
+        toast.dismiss("stok-keluar-toast");
+        toast.error("Gagal menyimpan transaksi: " + error.message);
     } finally {
         setIsSubmitting(false);
     }
   };
 
-  const availableItemsForSearch = Object.keys(stockData)
-    .filter(id => stockData[id] > 0 && masterItems[id])
-    .map(id => masterItems[id]);
+  const filteredItems = itemSearchTerm.length > 1 ? items.filter(i => i.name.toLowerCase().includes(itemSearchTerm.toLowerCase())) : [];
 
-  const filteredItems = searchTerm.length > 0 
-    ? availableItemsForSearch.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
-    : [];
-
-  const filteredToko = tokoSearchTerm.length > 0
-    ? tokoList.filter(toko => toko.namaToko.toLowerCase().includes(tokoSearchTerm.toLowerCase()))
-    : [];
+  if (loading) return <div className="p-8 text-center"><span className="loading loading-spinner loading-lg"></span></div>;
 
   return (
     <>
-      {showScanner && <CameraBarcodeScanner onScan={handleBarcodeDetected} onClose={() => setShowScanner(false)} />}
-      <div className="p-8">
-        <div className="card bg-white shadow-lg w-full">
-          <div className="card-body">
-            <h2 className="card-title text-2xl">Form Stok Keluar</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 p-4 border rounded-lg">
-              <div className="form-control">
-                <label className="label"><span className="label-text font-bold">No. Faktur</span></label>
+      {showScanner && ( <CameraBarcodeScanner onScan={(code) => {
+          const found = items.find(i => i.barcodePcs === code);
+          if (found) { setSelectedItem(found); setItemSearchTerm(found.name); }
+          setShowScanner(false);
+        }} onClose={() => setShowScanner(false)} /> )}
+      <div className="p-4 md:p-8">
+        <h1 className="text-3xl font-bold mb-6">Stok Keluar Manual (Non-Order)</h1>
+        
+        <div className="card bg-white shadow-lg p-6 mb-6">
+          <h3 className="font-bold mb-2">Informasi Pengeluaran</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="form-control">
+                <label className="label"><span className="label-text">No. Referensi / Faktur</span></label>
                 <input type="text" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} className="input input-bordered" />
-              </div>
-              <div className="form-control dropdown">
-                <label className="label"><span className="label-text font-bold">Nama Toko Tujuan</span></label>
-                <input type="text" value={tokoSearchTerm} onChange={(e) => { setTokoSearchTerm(e.target.value); setStoreId(''); setIsTokoSelected(false); }} placeholder="Ketik nama toko..." className="input input-bordered w-full" />
-                {filteredToko.length > 0 && !isTokoSelected && (
-                  <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">
-                    {filteredToko.slice(0, 5).map(toko => (
-                      <li key={toko.id}><a onClick={() => handleSelectToko(toko)}>{toko.namaToko}</a></li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <div className="form-control">
-                <label className="label"><span className="label-text">Nama Sopir</span></label>
-                <input type="text" value={driverName} onChange={(e) => setDriverName(e.target.value)} className="input input-bordered" />
-              </div>
-              <div className="form-control">
-                <label className="label"><span className="label-text">No. Polisi Kendaraan</span></label>
-                <input type="text" value={licensePlate} onChange={(e) => setLicensePlate(e.target.value)} className="input input-bordered" />
-              </div>
             </div>
-            <div className="divider">Detail Barang</div>
-            <div className="p-4 border rounded-lg bg-base-200">
-              <div className="form-control dropdown">
-                <label className="label"><span className="label-text">Cari Barang (Scan atau Ketik Nama)</span></label>
-                <div className="join w-full">
-                  <input type="text" placeholder="Hanya barang dengan stok tersedia akan muncul" className="input input-bordered join-item w-full" value={searchTerm} onChange={(e) => {setSearchTerm(e.target.value); setSelectedItem(null);}}/>
-                  <button type="button" onClick={() => setShowScanner(true)} className="btn btn-primary join-item">Scan</button>
-                </div>
-                {filteredItems.length > 0 && !selectedItem && (
-                  <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">
-                    {filteredItems.slice(0, 5).map(item => (
-                      <li key={item.id}><a onClick={() => handleSelectItem(item)}>{item.name}</a></li>
+            <div className="form-control dropdown">
+              <label className="label"><span className="label-text font-bold">Cari Toko Tujuan</span></label>
+              <input 
+                type="text"
+                value={storeSearchTerm}
+                onChange={(e) => {
+                    setStoreSearchTerm(e.target.value);
+                    setSelectedStore(null);
+                }}
+                placeholder="Ketik min. 2 huruf nama toko..."
+                className="input input-bordered"
+              />
+              {filteredStores.length > 0 && !selectedStore && (
+                <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">
+                    {filteredStores.map(store => (
+                        <li key={store.id}>
+                            <a onClick={() => {
+                                setSelectedStore(store);
+                                setStoreSearchTerm(store.namaToko);
+                            }}>{store.namaToko}</a>
+                        </li>
                     ))}
-                  </ul>
-                )}
-              </div>
-              {selectedItem && (
-                <div className="mt-4">
-                    <p className="font-bold">Barang Terpilih: {selectedItem.name}</p>
-                    <p className="text-sm">Sisa Stok: <span className='font-bold text-lg'>{itemStock}</span> Pcs</p>
-                    <div className="mt-2 grid grid-cols-3 md:grid-cols-4 gap-4 items-end">
-                        <div className="form-control"><label className="label-text">DOS</label><input type="number" value={dosQty} onChange={(e) => setDosQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div>
-                        <div className="form-control"><label className="label-text">PACK</label><input type="number" value={packQty} onChange={(e) => setPackQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div>
-                        <div className="form-control"><label className="label-text">PCS</label><input type="number" value={pcsQty} onChange={(e) => setPcsQty(e.target.valueAsNumber || 0)} className="input input-bordered" /></div>
-                        <div className="flex gap-2">
-                            <button type="button" onClick={() => handleAddItemToList(false)} className="btn btn-secondary">Tambah</button>
-                            <button type="button" onClick={() => handleAddItemToList(true)} className="btn btn-accent">Bonus</button>
-                        </div>
-                    </div>
-                </div>
+                </ul>
               )}
             </div>
-            <div className="divider">Barang dalam Transaksi Ini</div>
-            <div className="overflow-x-auto">
+            <div className="form-control">
+                <label className="label"><span className="label-text">Nama Supir</span></label>
+                <input type="text" value={driverName} onChange={(e) => setDriverName(e.target.value)} className="input input-bordered" />
+            </div>
+          </div>
+        </div>
+
+        <div className="card bg-white shadow-lg p-6">
+            <div className="form-control dropdown">
+                <label className="label"><span className="label-text">Cari Barang</span></label>
+                <div className="join w-full">
+                    <input type="text" placeholder="Ketik nama barang..." className="input input-bordered join-item w-full" value={itemSearchTerm} onChange={e => {setItemSearchTerm(e.target.value); setSelectedItem(null);}}/>
+                    <button onClick={() => setShowScanner(true)} className="btn btn-primary join-item">Scan</button>
+                </div>
+                {filteredItems.length > 0 && !selectedItem && (
+                    <ul tabIndex={0} className="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-full max-h-60 overflow-y-auto">
+                        {filteredItems.slice(0,10).map(item => <li key={item.id}><a onClick={() => {setSelectedItem(item); setItemSearchTerm(item.name)}}>{item.name}</a></li>)}
+                    </ul>
+                )}
+            </div>
+            {selectedItem && (
+                <div className="mt-4 p-4 border rounded-md bg-base-200">
+                    <p className="font-bold">Barang Terpilih: <span className="text-secondary">{selectedItem.name}</span></p>
+                    <div className="flex items-end gap-4 flex-wrap mt-2">
+                        <div className="form-control"><label className="label-text">DOS</label><input type="number" value={dosQty} onChange={(e) => setDosQty(e.target.valueAsNumber || 0)} className="input input-bordered input-sm" /></div>
+                        <div className="form-control"><label className="label-text">PACK</label><input type="number" value={packQty} onChange={(e) => setPackQty(e.target.valueAsNumber || 0)} className="input input-bordered input-sm" /></div>
+                        <div className="form-control"><label className="label-text">PCS</label><input type="number" value={pcsQty} onChange={(e) => setPcsQty(e.target.valueAsNumber || 0)} className="input input-bordered input-sm" /></div>
+                        <button type="button" onClick={handleAddItem} className="btn btn-secondary btn-sm">Tambah</button>
+                    </div>
+                </div>
+            )}
+        </div>
+        
+        <div className="mt-6">
+            <h3 className="text-xl font-bold mb-2">Daftar Barang Keluar</h3>
+            <div className="overflow-x-auto bg-white rounded-lg shadow">
               <table className="table w-full">
-                <thead><tr><th>Nama Barang</th><th>Jumlah Keluar</th><th>Aksi</th></tr></thead>
+                <thead><tr><th>Nama Barang</th><th>Jumlah</th><th>Aksi</th></tr></thead>
                 <tbody>
                   {transactionItems.map((item, index) => (
-                    <tr key={index}>
-                      <td>{item.name} {item.isBonus && <span className="badge badge-info badge-sm ml-2">Bonus</span>}</td>
-                      <td>{item.displayQty}</td>
-                      <td><button onClick={() => handleRemoveFromList(index)} className="btn btn-xs btn-error">Hapus</button></td>
+                    <tr key={index}><td>{item.name}</td><td>{item.displayQty}</td>
+                      <td><button onClick={() => handleRemoveItem(index)} className="btn btn-xs btn-error">Hapus</button></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <div className="form-control mt-6">
-              <button type="button" onClick={handleSaveTransaction} className="btn btn-primary btn-lg" disabled={isSubmitting || transactionItems.length === 0}>
-                {isSubmitting ? <span className="loading loading-spinner"></span> : 'Simpan Seluruh Transaksi'}
-              </button>
-            </div>
-          </div>
         </div>
+
+        <div className="mt-6 flex justify-end">
+            <button onClick={handleSaveTransaction} className="btn btn-success btn-lg" disabled={isSubmitting || transactionItems.length === 0}>
+                {isSubmitting ? <span className="loading loading-spinner"></span> : "Simpan & Potong Stok"}
+            </button>
+        </div>
+
       </div>
     </>
   );
