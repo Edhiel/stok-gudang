@@ -32,7 +32,9 @@ const KantorPusat = lazy(() => import('./components/KantorPusat'));
 const TransferStok = lazy(() => import('./components/TransferStok'));
 const KelolaToko = lazy(() => import('./components/KelolaToko'));
 const KelolaLokasi = lazy(() => import('./components/KelolaLokasi'));
-const TugasKunjungan = lazy(() => import('./components/TugasKunjungan')); // <-- Ganti DaftarPengiriman
+const TugasKunjungan = lazy(() => import('./components/TugasKunjungan'));
+const TutupPeriode = lazy(() => import('./components/TutupPeriode'));
+const LogAktivitas = lazy(() => import('./components/LogAktivitas'));
 
 const LoadingFallback = () => (
   <div className="flex justify-center items-center h-screen">
@@ -118,8 +120,14 @@ function App() {
     let ComponentToRender;
 
     switch (mainPage) {
-      case 'tugas-kunjungan': // <-- Tambah rute baru
+      case 'tugas-kunjungan':
         if(isDriverOrHelper) ComponentToRender = <TugasKunjungan userProfile={userProfile} />;
+        break;
+      case 'log-aktivitas':
+        if (isSuperAdmin) ComponentToRender = <LogAktivitas userProfile={userProfile} />;
+        break;
+      case 'tutup-periode':
+        if (canProcessOrder) ComponentToRender = <TutupPeriode userProfile={userProfile} />;
         break;
       case 'buat-order':
         if (isSales || isSuperAdmin) ComponentToRender = <BuatOrder userProfile={userProfile} />;
