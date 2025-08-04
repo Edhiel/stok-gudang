@@ -1,262 +1,205 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot, getDocs, collectionGroup, query } from 'firebase/firestore';
 import { firestoreDb } from '../firebaseConfig';
-import Papa from 'papaparse';
+import { Bar } from 'react-chartjs-2';
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
 
-const formatToDPP = (totalPcs, conversions) => {
-  if (!totalPcs || !conversions) return '0.0.0';
-  const dosInPcs = conversions.Dos?.inPcs || (conversions.Pack?.inPcs || 1);
-  const packInPcs = conversions.Pack?.inPcs || 1;
-  return `${Math.floor(totalPcs / dosInPcs)}.${Math.floor((totalPcs % dosInPcs) / packInPcs)}.${totalPcs % packInPcs}`;
-};
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
-const LaporanStok = ({ stockData, loading }) => (
-  <div className="overflow-x-auto">
-    <table className="table table-zebra w-full">
-      <thead className="bg-gray-200">
-        <tr><th>Nama Barang</th><th>Kategori</th><th>Supplier</th><th>Total Stok Baik (D.P.P)</th><th>Total Stok Rusak (D.P.P)</th></tr>
-      </thead>
-      <tbody>
-        {loading ? (<tr><td colSpan="5" className="text-center"><span className="loading loading-dots"></span></td></tr>) 
-        : stockData.length === 0 ? (<tr><td colSpan="5" className="text-center">Tidak ada data yang cocok.</td></tr>) 
-        : (stockData.map(item => (
-            <tr key={item.id}>
-              <td className="font-bold">{item.name}</td><td>{item.category}</td><td>{item.supplierName}</td>
-              <td>{formatToDPP(item.totalStock, item.conversions)}</td><td className='text-red-600'>{formatToDPP(item.damagedStock, item.conversions)}</td>
-            </tr>
-          )))}
-      </tbody>
-    </table>
+// Komponen Kartu Statistik
+const StatCard = ({ title, value, icon, color, loading }) => (
+  <div className={`card bg-white shadow-md p-4 flex flex-row items-center`}>
+    <div className={`text-3xl p-3 rounded-lg ${color}`}>{icon}</div>
+    <div className="ml-4">
+      <div className="text-gray-500 text-sm font-semibold">{title}</div>
+      {loading ? <span className="loading loading-spinner loading-sm"></span> : <div className="text-2xl font-bold">{value}</div>}
+    </div>
   </div>
 );
 
-const LaporanTransaksi = ({ transactions, loading, depots }) => (
-    <div className="overflow-x-auto">
-        <table className="table table-zebra w-full">
-        <thead className="bg-gray-200">
-            <tr><th>Tanggal</th><th>Depo</th><th>Tipe Transaksi</th><th>Detail</th><th>Oleh</th></tr>
-        </thead>
-        <tbody>
-            {loading ? (<tr><td colSpan="5" className="text-center"><span className="loading loading-dots"></span></td></tr>)
-            : transactions.length === 0 ? (<tr><td colSpan="5" className="text-center">Tidak ada data yang cocok.</td></tr>)
-            : (transactions.map(trans => (
-                <tr key={trans.id}>
-                    <td>{trans.timestamp?.toDate().toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short'})}</td>
-                    <td>{depots.find(d => d.id === trans.depotId)?.name || trans.depotId}</td>
-                    <td><span className={`badge ${trans.type.includes('Masuk') || trans.type.includes('Baik') ? 'badge-success' : 'badge-error'}`}>{trans.type}</span></td>
-                    <td>
-                        {trans.items.map((item, idx) => (<div key={idx} className="text-xs">{item.name} ({item.displayQty})</div>))}
-                    </td>
-                    <td>{trans.user}</td>
-                </tr>
-            )))}
-        </tbody>
-        </table>
-    </div>
-);
-
-const PaginationControls = ({ currentPage, totalPages, onPageChange }) => {
-    if (totalPages <= 1) return null;
-    return (
-        <div className="flex justify-center items-center gap-4 mt-4 print:hidden">
-            <button className="btn btn-sm" onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1}>«</button>
-            <span className="font-semibold">Halaman {currentPage} dari {totalPages}</span>
-            <button className="btn btn-sm" onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages}>»</button>
-        </div>
-    );
-}
-
-function KantorPusat({ userProfile }) {
-  const [activeTab, setActiveTab] = useState('stok');
-  const [loading, setLoading] = useState(true);
+function KantorPusat() {
   const [allDepots, setAllDepots] = useState([]);
   const [masterItems, setMasterItems] = useState({});
-  const [originalStockData, setOriginalStockData] = useState([]);
-  const [originalTransactions, setOriginalTransactions] = useState([]);
-  const [processedStock, setProcessedStock] = useState([]);
-  const [processedTransactions, setProcessedTransactions] = useState([]);
+  const [allStock, setAllStock] = useState([]);
+  const [allTransactions, setAllTransactions] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [selectedDepot, setSelectedDepot] = useState('semua');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterCategory, setFilterCategory] = useState('');
-  const [filterStartDate, setFilterStartDate] = useState('');
-  const [filterEndDate, setFilterEndDate] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 25;
+  
+  const [stats, setStats] = useState({ totalDepots: 0, totalItems: 0, totalStockValue: 0 });
+  const [chartData, setChartData] = useState({ labels: [], datasets: [] });
 
   useEffect(() => {
     const fetchInitialData = async () => {
-        setLoading(true);
-        const depotsSnap = await getDocs(collection(firestoreDb, 'depots'));
-        const depotList = depotsSnap.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
-        setAllDepots(depotList);
+      setLoading(true);
 
-        const masterItemsSnap = await getDocs(collection(firestoreDb, 'master_items'));
-        const masterData = {};
-        masterItemsSnap.forEach(doc => {
-            masterData[doc.id] = doc.data();
-        });
-        setMasterItems(masterData);
+      // Ambil daftar depo
+      const depotsSnap = await getDocs(collection(firestoreDb, 'depots'));
+      const depotList = depotsSnap.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+      setAllDepots(depotList);
+      setStats(prev => ({ ...prev, totalDepots: depotList.length }));
 
-        const stockQuery = query(collectionGroup(firestoreDb, 'stock'));
-        const transQuery = query(collectionGroup(firestoreDb, 'transactions'));
-        
-        const stockSnapshot = await getDocs(stockQuery);
-        const stockSummary = {};
-        stockSnapshot.forEach(doc => {
-            const itemId = doc.id;
-            const data = doc.data();
-            if (!stockSummary[itemId]) stockSummary[itemId] = { totalStockInPcs: 0, damagedStockInPcs: 0 };
-            stockSummary[itemId].totalStockInPcs += data.totalStockInPcs || 0;
-            stockSummary[itemId].damagedStockInPcs += data.damagedStockInPcs || 0;
-        });
+      // Ambil master barang
+      const masterItemsSnap = await getDocs(collection(firestoreDb, 'master_items'));
+      const masterData = {};
+      masterItemsSnap.forEach(doc => { masterData[doc.id] = doc.data(); });
+      setMasterItems(masterData);
+      setStats(prev => ({ ...prev, totalItems: masterItemsSnap.size }));
 
-        const finalStockData = Object.keys(stockSummary).map(itemId => ({
-            id: itemId, ...masterData[itemId],
-            totalStock: stockSummary[itemId].totalStockInPcs,
-            damagedStock: stockSummary[itemId].damagedStockInPcs,
-        })).filter(item => item.name);
-
-        setOriginalStockData(finalStockData);
-
-        const transSnapshot = await getDocs(transQuery);
-        const allTransactions = transSnapshot.docs.map(doc => {
+      // Ambil SEMUA stok dari SEMUA depo menggunakan collectionGroup
+      const stockQuery = query(collectionGroup(firestoreDb, 'stock'));
+      const unsubStock = onSnapshot(stockQuery, (snapshot) => {
+        const stockData = snapshot.docs.map(doc => {
             const path = doc.ref.path.split('/');
             const depotId = path[1];
-            return { id: doc.id, depotId, ...doc.data() };
+            return { itemId: doc.id, depotId, ...doc.data() };
         });
+        setAllStock(stockData);
+      });
 
-        setOriginalTransactions(allTransactions.sort((a,b) => b.timestamp?.toMillis() - a.timestamp?.toMillis()));
+      // Ambil SEMUA transaksi dari SEMUA depo
+      const transQuery = query(collectionGroup(firestoreDb, 'transactions'));
+      const unsubTrans = onSnapshot(transQuery, (snapshot) => {
+        const transData = snapshot.docs.map(doc => {
+            const path = doc.ref.path.split('/');
+            const depotId = path[1];
+            return { transId: doc.id, depotId, ...doc.data() };
+        });
+        setAllTransactions(transData);
         setLoading(false);
+      });
+
+      return () => {
+        unsubStock();
+        unsubTrans();
+      };
     };
 
     fetchInitialData();
   }, []);
 
-  useEffect(() => {
-    let newProcessedStock = [...originalStockData];
-    if (filterCategory) newProcessedStock = newProcessedStock.filter(item => item.category === filterCategory);
-    if (searchTerm) newProcessedStock = newProcessedStock.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()));
-    setProcessedStock(newProcessedStock);
-
-    let newProcessedTrans = [...originalTransactions];
-    if (selectedDepot !== 'semua') newProcessedTrans = newProcessedTrans.filter(t => t.depotId === selectedDepot);
-    if (filterStartDate) { const start = new Date(filterStartDate).setHours(0,0,0,0); newProcessedTrans = newProcessedTrans.filter(t => t.timestamp?.toDate() >= start); }
-    if (filterEndDate) { const end = new Date(filterEndDate).setHours(23,59,59,999); newProcessedTrans = newProcessedTrans.filter(t => t.timestamp?.toDate() <= end); }
-    setProcessedTransactions(newProcessedTrans);
-    setCurrentPage(1);
-  }, [selectedDepot, filterCategory, searchTerm, filterStartDate, filterEndDate, originalStockData, originalTransactions]);
-
-  const totalStockPages = Math.ceil(processedStock.length / itemsPerPage);
-  const totalTransactionPages = Math.ceil(processedTransactions.length / itemsPerPage);
-  const paginatedStock = useMemo(() => {
-    const first = (currentPage - 1) * itemsPerPage;
-    const last = first + itemsPerPage;
-    return processedStock.slice(first, last);
-  }, [currentPage, processedStock]);
-
-  const paginatedTransactions = useMemo(() => {
-    const first = (currentPage - 1) * itemsPerPage;
-    const last = first + itemsPerPage;
-    return processedTransactions.slice(first, last);
-  }, [currentPage, processedTransactions]);
-
-  const handlePrint = () => { window.print(); };
-  const handleExportCsv = () => {
-    let dataToExport = [];
-    let filename = 'laporan_pusat.csv';
-    const today = new Date().toISOString().split('T')[0];
-    const depotName = selectedDepot === 'semua' ? 'SemuaDepo' : selectedDepot;
-    if (activeTab === 'stok') {
-        dataToExport = processedStock.map(item => ({
-            'ID Barang': item.id, 'Nama Barang': item.name, 'Kategori': item.category, 
-            'Supplier': item.supplierName, 'Total Stok Baik (Pcs)': item.totalStock || 0,
-            'Total Stok Rusak (Pcs)': item.damagedStock || 0, 'Stok Baik (D.P.P)': formatToDPP(item.totalStock, item.conversions),
-        }));
-        filename = `laporan_stok_gabungan_${depotName}_${today}.csv`;
-    } else if (activeTab === 'transaksi') {
-        dataToExport = processedTransactions.map(trans => ({
-            'Tanggal': trans.timestamp?.toDate().toLocaleString('id-ID'), 'Depo': allDepots.find(d => d.id === trans.depotId)?.name || trans.depotId,
-            'Tipe': trans.type, 'Oleh': trans.user, 'Detail Barang': trans.items.map(i => `${i.name} (${i.displayQty})`).join('; ')
-        }));
-        filename = `laporan_transaksi_gabungan_${depotName}_${today}.csv`;
+  // Memoize data yang difilter agar tidak dihitung ulang setiap render
+  const filteredData = useMemo(() => {
+    if (selectedDepot === 'semua') {
+      return { stock: allStock, transactions: allTransactions };
     }
-    if (dataToExport.length === 0) { alert("Tidak ada data untuk diekspor."); return; }
-    const csv = Papa.unparse(dataToExport);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", filename);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    return {
+      stock: allStock.filter(s => s.depotId === selectedDepot),
+      transactions: allTransactions.filter(t => t.depotId === selectedDepot),
+    };
+  }, [selectedDepot, allStock, allTransactions]);
+
+  // Update chart data saat data yang difilter berubah
+  useEffect(() => {
+    const now = new Date();
+    const dailyData = {};
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      const dateStr = date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
+      dailyData[dateStr] = { masuk: 0, keluar: 0 };
+    }
+
+    filteredData.transactions.forEach((tx) => {
+      if (tx.timestamp?.toDate) {
+        const txDate = tx.timestamp.toDate();
+        const dateStr = txDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
+        if (dailyData[dateStr]) {
+            if (tx.type === 'Stok Masuk') {
+                dailyData[dateStr].masuk += tx.items.reduce((sum, item) => sum + (item.qtyInPcs || item.quantityInPcs || 0), 0);
+            } else if (tx.type.includes('Stok Keluar')) {
+                dailyData[dateStr].keluar += tx.items.reduce((sum, item) => sum + (item.quantityInPcs || 0), 0);
+            }
+        }
+      }
+    });
+
+    setChartData({
+      labels: Object.keys(dailyData),
+      datasets: [
+        { label: 'Stok Masuk (Pcs)', data: Object.values(dailyData).map(d => d.masuk), backgroundColor: 'rgba(75, 192, 192, 0.6)' },
+        { label: 'Stok Keluar (Pcs)', data: Object.values(dailyData).map(d => d.keluar), backgroundColor: 'rgba(255, 99, 132, 0.6)' },
+      ],
+    });
+  }, [filteredData.transactions]);
+
+  const totalStockPcs = useMemo(() => {
+    return filteredData.stock.reduce((sum, s) => sum + (s.totalStockInPcs || 0), 0);
+  }, [filteredData.stock]);
+
+  const chartOptions = {
+    responsive: true,
+    plugins: {
+      legend: { position: 'top' },
+      title: { display: true, text: `Aktivitas Gudang 7 Hari Terakhir (${allDepots.find(d => d.id === selectedDepot)?.name || 'Semua Depo'})` },
+    },
   };
+
   return (
-    <div className="p-8">
-      <div className="hidden print:block mb-4">
-        <div className="flex items-center justify-center mb-4">
-          <img src="/logo_bulet_mhm.gif" alt="Logo Perusahaan" className="h-16 w-16 mr-4" />
-          <div>
-            <h1 className="text-2xl font-bold">PT. Mahameru Mitra Makmur</h1>
-            <p>Laporan Gabungan Kantor Pusat</p>
-          </div>
-        </div>
-        <div className="text-center">
-            <p>Depo: {allDepots.find(d => d.id === selectedDepot)?.name || 'Semua Depo'}</p>
-            <p className="font-semibold text-lg">Laporan {activeTab === 'stok' ? 'Stok Barang' : 'Transaksi'}</p>
-            <p className="text-sm">Dicetak pada: {new Date().toLocaleDateString('id-ID')}</p>
-        </div>
-      </div>
-      <div className="flex justify-between items-center mb-6 print:hidden">
-        <h1 className="text-3xl font-bold">Dasbor Kantor Pusat</h1>
-        <div className="flex gap-2">
-            <button className="btn btn-sm btn-info" onClick={handlePrint}>Cetak / PDF</button>
-            <button className="btn btn-sm btn-success" onClick={handleExportCsv}>Ekspor ke CSV</button>
+    <div className="p-4 sm:p-8 bg-gray-100 min-h-screen">
+      <div className="flex flex-col md:flex-row justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold text-gray-800">Dasbor Kantor Pusat</h1>
+        <div className="form-control w-full md:w-auto mt-4 md:mt-0">
+          <select 
+            className="select select-bordered" 
+            value={selectedDepot} 
+            onChange={(e) => setSelectedDepot(e.target.value)}
+          >
+            <option value="semua">Tampilkan Semua Depo</option>
+            {allDepots.map(depot => (
+              <option key={depot.id} value={depot.id}>{depot.name}</option>
+            ))}
+          </select>
         </div>
       </div>
-      <div role="tablist" className="tabs tabs-lifted print:hidden">
-        <a role="tab" className={`tab ${activeTab === 'stok' ? 'tab-active' : ''}`} onClick={() => setActiveTab('stok')}>Laporan Stok Gabungan</a>
-        <a role="tab" className={`tab ${activeTab === 'transaksi' ? 'tab-active' : ''}`} onClick={() => setActiveTab('transaksi')}>Laporan Transaksi Gabungan</a>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <StatCard title="Total Depo Aktif" value={stats.totalDepots} icon="🏢" color="bg-purple-100 text-purple-600" loading={loading} />
+        <StatCard title="Total Master Barang" value={stats.totalItems} icon="📦" color="bg-blue-100 text-blue-600" loading={loading} />
+        <StatCard title="Total Stok (Pcs)" value={totalStockPcs.toLocaleString('id-ID')} icon="📊" color="bg-green-100 text-green-600" loading={loading} />
       </div>
-      <div className="card bg-white shadow-lg w-full rounded-b-lg rounded-tr-lg">
-        <div className="card-body">
-          <div className="p-4 bg-base-200 rounded-lg mb-4 print:hidden">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="form-control">
-                <label className="label-text">Filter per Depo</label>
-                <select className="select select-bordered" value={selectedDepot} onChange={(e) => setSelectedDepot(e.target.value)}>
-                  <option value="semua">Semua Depo</option>
-                  {allDepots.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
-              </div>
-              {activeTab === 'stok' ? (
-                <>
-                  <div className="form-control"><label className="label-text">Cari Nama Barang</label><input type="text" placeholder="Ketik untuk mencari..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="input input-bordered" /></div>
-                  <div className="form-control"><label className="label-text">Filter Kategori</label><select className="select select-bordered" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}><option value="">Semua Kategori</option>{[...new Set(masterItems ? Object.values(masterItems).map(i => i.category) : [])].sort().map(c => <option key={c} value={c}>{c}</option>)}</select></div>
-                </>
-              ) : (
-                <>
-                  <div className="form-control"><label className="label-text">Dari Tanggal</label><input type="date" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} className="input input-bordered" /></div>
-                  <div className="form-control"><label className="label-text">Sampai Tanggal</label><input type="date" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} className="input input-bordered" /></div>
-                </>
-              )}
-            </div>
-          </div>
-          {activeTab === 'stok' && (
-            <>
-              <LaporanStok stockData={paginatedStock} loading={loading} />
-              <PaginationControls currentPage={currentPage} totalPages={totalStockPages} onPageChange={setCurrentPage} />
-            </>
-          )}
-          {activeTab === 'transaksi' && (
-            <>
-              <LaporanTransaksi transactions={paginatedTransactions} loading={loading} depots={allDepots} />
-              <PaginationControls currentPage={currentPage} totalPages={totalTransactionPages} onPageChange={setCurrentPage} />
-            </>
-          )}
+
+      <div className="card bg-white shadow-md p-4 mb-8">
+        <Bar options={chartOptions} data={chartData} />
+      </div>
+
+      <div className="card bg-white shadow-md p-4">
+        <h2 className="text-xl font-bold mb-4">Rincian Stok per Barang</h2>
+        <div className="overflow-x-auto max-h-96">
+          <table className="table table-zebra table-sm w-full">
+            <thead className="bg-gray-200 sticky top-0">
+              <tr>
+                <th>Nama Barang</th>
+                <th>Total Stok Baik (Pcs)</th>
+                <th>Total Stok Rusak (Pcs)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan="3" className="text-center"><span className="loading loading-dots"></span></td></tr>
+              ) : Object.entries(
+                  // Mengelompokkan stok berdasarkan nama barang
+                  filteredData.stock.reduce((acc, s) => {
+                    const itemName = masterItems[s.itemId]?.name || 'Nama Tidak Ditemukan';
+                    if (!acc[itemName]) {
+                      acc[itemName] = { good: 0, damaged: 0 };
+                    }
+                    acc[itemName].good += s.totalStockInPcs || 0;
+                    acc[itemName].damaged += s.damagedStockInPcs || 0;
+                    return acc;
+                  }, {})
+                ).sort((a,b) => a[0].localeCompare(b[0])) // Urutkan berdasarkan nama barang
+                 .map(([name, stock]) => (
+                  <tr key={name}>
+                    <td className="font-semibold">{name}</td>
+                    <td>{stock.good.toLocaleString('id-ID')}</td>
+                    <td className="text-red-600">{stock.damaged.toLocaleString('id-ID')}</td>
+                  </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
   );
 }
+
 export default KantorPusat;
