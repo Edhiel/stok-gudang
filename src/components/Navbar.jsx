@@ -43,6 +43,8 @@ function Navbar({ user, setPage, handleLogout }) {
                     <li className="menu-title"><span>Faktur</span></li>
                     {canProcessOrder && <li><a onClick={() => setPage('faktur-tertunda')}>Buat Faktur Tertunda</a></li>}
                     {canProcessOrder && <li><a onClick={() => setPage('proses-faktur-tertunda')}>Proses Faktur Tertunda</a></li>}
+                    <li className="menu-title"><span>Administrasi Gudang</span></li>
+                    <li><a onClick={() => setPage('tutup-periode')}>Tutup Hari</a></li>
                     </ul></details></li>
                 )}
                 {canAccessMasterData && ( <li tabIndex={0}><details><summary>Data Master</summary><ul className="p-2 bg-base-100 text-base-content w-56">
@@ -56,6 +58,7 @@ function Navbar({ user, setPage, handleLogout }) {
                     <li><a onClick={() => setPage('kelola-pengguna')}>Pengguna</a></li>
                     <li><a onClick={() => setPage('kelola-depo')}>Depo</a></li>
                     <li><a onClick={() => setPage('alokasi-supplier')}>Alokasi Supplier</a></li>
+                    <li><a onClick={() => setPage('log-aktivitas')}>Log Aktivitas</a></li>
                     <li><a onClick={() => setPage('backup-restore')}>Backup & Restore</a></li>
                 </ul></details></li> )}
                 {canViewLaporan && <li><a onClick={() => setPage('laporan')}>Laporan</a></li>}
