@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
+// --- KOMPONEN DAN DATA STATIS (TIDAK BERUBAH) ---
 const StatCard = ({ title, value, icon, color, loading }) => (
   <div className={`card bg-white shadow-md p-4 flex flex-row items-center`}>
     <div className={`text-3xl p-3 rounded-lg ${color}`}>{icon}</div>
@@ -43,8 +44,7 @@ const SubMenuCard = ({ name, icon, onClick, category, colorSchemes }) => {
     );
 };
 
-const MenuModal = ({ title, items, setPage, onClose, colorSchemes }) => {
-  return (
+const MenuModal = ({ title, items, setPage, onClose, colorSchemes }) => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6">
         <div className="flex justify-between items-center mb-4">
@@ -53,32 +53,18 @@ const MenuModal = ({ title, items, setPage, onClose, colorSchemes }) => {
         </div>
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
           {items.map((item) => (
-            <SubMenuCard
-              key={item.page}
-              name={item.name}
-              icon={item.icon}
-              onClick={() => {
-                setPage(item.page);
-                onClose();
-              }}
-              category={item.category}
-              colorSchemes={colorSchemes}
-            />
+            <SubMenuCard key={item.page} name={item.name} icon={item.icon} onClick={() => { setPage(item.page); onClose(); }} category={item.category} colorSchemes={colorSchemes} />
           ))}
         </div>
       </div>
     </div>
-  );
-};
+);
 
 const MainMenuCard = ({ name, icon, onClick, category, colorSchemes }) => {
   const colorValue = colorSchemes[category] || '#4B5567';
   const coloredIcon = React.cloneElement(icon, { color: colorValue });
   return (
-    <button
-      onClick={onClick}
-      className="flex flex-col items-center justify-center p-4 bg-white rounded-lg shadow-md hover:shadow-lg transition-all duration-200 aspect-square"
-    >
+    <button onClick={onClick} className="flex flex-col items-center justify-center p-4 bg-white rounded-lg shadow-md hover:shadow-lg transition-all duration-200 aspect-square">
       {coloredIcon}
       <span className="mt-2 text-sm text-center font-medium text-gray-700">{name}</span>
     </button>
@@ -113,6 +99,7 @@ const Ikon = {
   Toko: ({ color = 'currentColor' }) => <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 sm:h-12 sm:w-12" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.25a.75.75 0 01-.75-.75v-7.5a.75.75 0 01.75-.75h1.5m1.5 0V3.75c0-1.621.808-3 2.25-3h3.75c1.442 0 2.25 1.379 2.25 3V12m-1.5 0h-9" /></svg>,
   Lokasi: ({ color = 'currentColor' }) => <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 sm:h-12 sm:w-12" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" /></svg>,
   PengirimanBarang: ({ color = 'currentColor' }) => <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 sm:h-12 sm:w-12" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-2 2-2-2z" /></svg>,
+  TutupPeriode: ({ color = 'currentColor' }) => <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 sm:h-12 sm:w-12" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>,
 };
 
 function Dashboard({ user, setPage }) {
@@ -144,44 +131,40 @@ function Dashboard({ user, setPage }) {
     const unsubOrders = onSnapshot(ordersQuery, (snapshot) => setStats(prev => ({ ...prev, orderCount: snapshot.size })));
 
     const unsubStock = onSnapshot(stockQuery, async (stockSnapshot) => {
-        try {
-            const masterSnapshot = await getDocs(masterItemsQuery);
-            const masterItems = masterSnapshot.docs.reduce((acc, doc) => ({ ...acc, [doc.id]: doc.data() }), {});
+        const masterSnapshot = await getDocs(masterItemsQuery);
+        const masterItems = masterSnapshot.docs.reduce((acc, doc) => ({ ...acc, [doc.id]: doc.data() }), {});
 
-            const lowStock = [];
-            const expiring = [];
-            const now = new Date();
+        const lowStock = [];
+        const expiring = [];
+        const now = new Date();
 
-            stockSnapshot.forEach((doc) => {
-                const itemId = doc.id;
-                const stockItem = doc.data();
-                const masterItem = masterItems[itemId];
+        stockSnapshot.forEach((doc) => {
+            const itemId = doc.id;
+            const stockItem = doc.data();
+            const masterItem = masterItems[itemId];
 
-                if (masterItem) {
-                    const minStock = masterItem.minStock || 0;
-                    if (stockItem.totalStockInPcs <= minStock) {
-                        lowStock.push({ id: itemId, name: masterItem.name, totalStock: stockItem.totalStockInPcs });
-                    }
-
-                    if (stockItem.batches) {
-                        Object.entries(stockItem.batches).forEach(([batchId, batch]) => {
-                            if (batch.expireDate) {
-                                const expireDate = new Date(batch.expireDate);
-                                const diffDays = (expireDate - now) / (1000 * 60 * 60 * 24);
-                                if (diffDays <= 60 && diffDays >= 0) {
-                                    expiring.push({ id: itemId, itemName: masterItem.name, batchId, ...batch });
-                                }
-                            }
-                        });
-                    }
+            if (masterItem) {
+                const minStock = masterItem.minStock || 0;
+                if (stockItem.totalStockInPcs <= minStock) {
+                    lowStock.push({ id: itemId, name: masterItem.name, totalStock: stockItem.totalStockInPcs });
                 }
-            });
-            setLowStockItems(lowStock);
-            setExpiringItems(expiring.sort((a, b) => new Date(a.expireDate) - new Date(b.expireDate)));
-            if (loading) setLoading(false);
-        } catch (error) {
-            toast.error("Gagal memproses data stok & ED.");
-        }
+
+                if (stockItem.batches) {
+                    Object.entries(stockItem.batches).forEach(([batchId, batch]) => {
+                        if (batch.expireDate) {
+                            const expireDate = new Date(batch.expireDate);
+                            const diffDays = (expireDate - now) / (1000 * 60 * 60 * 24);
+                            if (diffDays <= 60 && diffDays >= 0) {
+                                expiring.push({ id: itemId, itemName: masterItem.name, batchId, ...batch });
+                            }
+                        }
+                    });
+                }
+            }
+        });
+        setLowStockItems(lowStock);
+        setExpiringItems(expiring.sort((a, b) => new Date(a.expireDate) - new Date(b.expireDate)));
+        if (loading) setLoading(false);
     });
     
     const unsubTransactions = onSnapshot(transactionsQuery, (snapshot) => {
@@ -248,12 +231,20 @@ function Dashboard({ user, setPage }) {
       const canProcessOrder = ['Super Admin', 'Kepala Depo', 'Admin Depo', 'Kepala Gudang'].includes(user?.role);
       const isDriverOrHelper = ['Sopir', 'Helper Depo'].includes(user?.role);
 
-      const menuPengiriman = [{ name: 'Lihat Daftar Pengiriman', icon: <Ikon.PengirimanBarang />, page: 'daftar-pengiriman', show: true, category: 'pengiriman' }];
+      const menuPengiriman = [{ name: 'Lihat Daftar Pengiriman', icon: <Ikon.PengirimanBarang />, page: 'tugas-kunjungan', show: true, category: 'pengiriman' }];
       const menuOrderan = [{ name: 'Buat Order', icon: <Ikon.BuatOrder />, page: 'buat-order', show: isSales || isSuperAdmin }, { name: 'Proses Order', icon: <Ikon.ProsesOrder />, page: 'proses-order', show: canProcessOrder }, { name: 'Faktur Tertunda', icon: <Ikon.FakturTertunda />, page: 'faktur-tertunda', show: true }, { name: 'Proses Faktur', icon: <Ikon.ProsesFaktur />, page: 'proses-faktur-tertunda', show: canProcessOrder }].filter(item => item.show).map(item => ({ ...item, category: 'orderan' }));
-      const menuGudang = [{ name: 'Stok Masuk', icon: <Ikon.StokMasuk />, page: 'stok-masuk' }, { name: 'Stok Keluar', icon: <Ikon.StokKeluar />, page: 'stok-keluar' }, { name: 'Pengeluaran (Order)', icon: <Ikon.PengeluaranBarang />, page: 'pengeluaran-barang' }, { name: 'Transfer Stok', icon: <Ikon.TransferStok />, page: 'transfer-stok' }, { name: 'Manajemen Retur', icon: <Ikon.Retur />, page: 'manajemen-retur' }, { name: 'Stock Opname', icon: <Ikon.StockOpname />, page: 'stock-opname' }].map(item => ({ ...item, category: 'operasional' }));
+      const menuGudang = [
+          { name: 'Stok Masuk', icon: <Ikon.StokMasuk />, page: 'stok-masuk' },
+          { name: 'Stok Keluar', icon: <Ikon.StokKeluar />, page: 'stok-keluar' },
+          { name: 'Pengeluaran (Order)', icon: <Ikon.PengeluaranBarang />, page: 'pengeluaran-barang' },
+          { name: 'Transfer Stok', icon: <Ikon.TransferStok />, page: 'transfer-stok' },
+          { name: 'Manajemen Retur', icon: <Ikon.Retur />, page: 'manajemen-retur' },
+          { name: 'Stock Opname', icon: <Ikon.StockOpname />, page: 'stock-opname' },
+          { name: 'Tutup Hari', icon: <Ikon.TutupPeriode />, page: 'tutup-periode', show: canProcessOrder }
+      ].filter(item => typeof item.show === 'undefined' || item.show === true).map(item => ({ ...item, category: 'operasional' }));
       const menuMaster = [{ name: 'Master Barang', icon: <Ikon.MasterBarang />, page: 'kelola-master-barang' }, { name: 'Toko / Pelanggan', icon: <Ikon.Toko />, page: 'kelola-toko' }, { name: 'Supplier', icon: <Ikon.Supplier />, page: 'kelola-supplier' }, { name: 'Kategori', icon: <Ikon.Kategori />, page: 'kelola-kategori' }, { name: 'Lokasi Gudang', icon: <Ikon.Lokasi />, page: 'kelola-lokasi' }].map(item => ({ ...item, category: 'master' }));
       const menuLaporan = [{ name: 'Laporan Depo', icon: <Ikon.Laporan />, page: 'laporan' }, { name: 'Laporan ED', icon: <Ikon.Warning />, page: 'laporan-kedaluwarsa' }, { name: 'Dasbor Pusat', icon: <Ikon.KantorPusat />, page: 'kantor-pusat', show: isSuperAdmin || isAdminPusat }].filter(item => typeof item.show === 'undefined' || item.show === true).map(item => ({ ...item, category: 'laporan' }));
-      const menuAdmin = [{ name: 'Pengguna', icon: <Ikon.User />, page: 'kelola-pengguna' }, { name: 'Depo', icon: <Ikon.Depo />, page: 'kelola-depo' }, { name: 'Alokasi Supplier', icon: <Ikon.Alokasi />, page: 'alokasi-supplier' }, { name: 'Backup & Restore', icon: <Ikon.BackupRestore />, page: 'backup-restore' }].map(item => ({ ...item, category: 'admin' }));
+      const menuAdmin = [{ name: 'Pengguna', icon: <Ikon.User />, page: 'kelola-pengguna' }, { name: 'Depo', icon: <Ikon.Depo />, page: 'kelola-depo' }, { name: 'Alokasi Supplier', icon: <Ikon.Alokasi />, page: 'alokasi-supplier' }, { name: 'Log Aktivitas', icon: <Ikon.ProsesOrder />, page: 'log-aktivitas' }, { name: 'Backup & Restore', icon: <Ikon.BackupRestore />, page: 'backup-restore' }].map(item => ({ ...item, category: 'admin' }));
       
       return [
         { title: 'Tugas Pengiriman', icon: <Ikon.PengirimanBarang />, items: menuPengiriman, show: isDriverOrHelper },
